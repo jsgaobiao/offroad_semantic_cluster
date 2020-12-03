@@ -31,9 +31,9 @@ class E2EAverage(nn.Module):
         if torch.cuda.is_available():
             mutualInfo = mutualInfo.cuda()
         for i in range(batch_size): #逐个计算每个锚点与其正负样本的距离
-            anchor = feature[i].view(featureSize, -1) # 这里相当于扩维+矩阵转置
-            pos = feature[batch_size + i*(K+1)].view(1,-1)# 扩充维度
-            neg = feature[(batch_size + i*(K+1) + 1):(batch_size + i*(K+1) + 1 + K)]
+            anchor = feature[i*(K+2)].view(featureSize, -1) # 这里相当于扩维+矩阵转置
+            pos = feature[i*(K+2)+1].view(1,-1)# 扩充维度
+            neg = feature[i*(K+2)+2 : (i+1)*(K+2)]
             pos_neg_feature = torch.cat((pos,neg),0)
             mutualInfo[i] = torch.mm(pos_neg_feature, anchor)
         

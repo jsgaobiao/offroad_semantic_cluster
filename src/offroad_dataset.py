@@ -9,10 +9,11 @@ import cv2
 import random
 
 class OffRoadDataset(Dataset):
-    def __init__(self, root, subset='train', neg_sample_num=32, transform=None, patch_size=32):
+    def __init__(self, root, subset='train', pos_sample_num=1, neg_sample_num=32, transform=None, patch_size=32):
         super(OffRoadDataset, self).__init__()
         self.root = os.path.join(root, 'train')
         self.neg_sample_num = neg_sample_num
+        self.pos_sample_num = pos_sample_num
         self.transform = transform
         self.patch_size = patch_size
         self.anchor_dict = np.load(os.path.join(self.root,"anchors_annotation.npy"), allow_pickle=True).item()
@@ -69,7 +70,7 @@ class OffRoadDataset(Dataset):
         return np.array(_patch_list)
 
     def __getitem__(self, idx):
-        ''' 返回一个锚点，一个正样本，若干负样本 
+        ''' 返回一个锚点，若干正样本（默认1个），若干负样本 
         :return: anchor, pos_sample, neg_sample
         '''
         frame_id = self.anchor_list[idx][0]  # anchor_list[i]: [frame_id, anchor_x, anchor_y, anchor_type]
@@ -79,10 +80,13 @@ class OffRoadDataset(Dataset):
 
         # 挑选出anchor_type一样的作为正样本
         # pos_sample_list[i]: [x, y, anchor_type] # anchor_list[i]: [frame_id, anchor_x, anchor_y, anchor_type]
-        pos_sample_list = [_dat for _dat in self.anchor_dict[frame_id] if _dat[2] == self.anchor_list[idx][3]]
-        # 随机选一个正样本
-        pos_sample_id = random.randint(0, len(pos_sample_list)-1)
-        pos_sample = self.__getSample__(full_img, pos_sample_list[pos_sample_id], rand_sample=True)
+        pos_sample_list = [_dat for _dat in self.anchor_dict[frame_id] if _dat[2] == self.anchor_list[idx][3]]        
+        # 在正样本集合中随机选取self.pos_sample_num（默认1）个正样本id
+        pos_sample_id_list = [random.randint(0, len(pos_sample_list)-1) for i in range(self.pos_sample_num)]
+        pos_sample = np.zeros((self.pos_sample_num, self.patch_size, self.patch_size, 3), dtype=np.uint8)
+        for i, pos_id in enumerate(pos_sample_id_list):
+            # 正样本： 在patch[_id]范围内随机选取新的中心点，作为正样本patch中心
+            pos_sample[i] = self.__getSample__(full_img, pos_sample_list[pos_id], rand_sample=True)
 
         # 挑选anchor_type不同的作为负样本 # neg_sample_list[i]: [x, y, anchor_type]
         neg_sample_list = [_dat for _dat in self.anchor_dict[frame_id] if _dat[2] != self.anchor_list[idx][3]]
@@ -94,12 +98,13 @@ class OffRoadDataset(Dataset):
             neg_sample[i] = self.__getSample__(full_img, neg_sample_list[neg_id], rand_sample=True)
 
         anchor_tensor = torch.zeros(1, 3, 224, 224)
-        pos_sample_tensor = torch.zeros(1, 3, 224, 224)
+        pos_sample_tensor = torch.zeros(pos_sample.shape[0], 3, 224, 224)
         neg_sample_tensor = torch.zeros(neg_sample.shape[0], 3, 224, 224)
         # transform will change shape [num, H, W, channel] --> [num, channel, H, W]
         if self.transform is not None:
             anchor_tensor[0] = self.transform(anchor[0])           # [1, H, W, channel] 
-            pos_sample_tensor[0] = self.transform(pos_sample[0])   # [1, H, W, channel]
+            for i in range(pos_sample.shape[0]):
+                pos_sample_tensor[i] = self.transform(pos_sample[i])     # [P, H, W, channel]  default: P=1
             for i in range(neg_sample.shape[0]):
                 neg_sample_tensor[i] = self.transform(neg_sample[i])     # [K, H, W, channel] 
 

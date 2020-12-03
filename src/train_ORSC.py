@@ -41,14 +41,14 @@ def parse_option():
 
     parser.add_argument('--print_freq', type=int, default=10, help='print frequency')
     parser.add_argument('--tb_freq', type=int, default=500, help='tb frequency')
-    parser.add_argument('--save_freq', type=int, default=10, help='save frequency')
+    parser.add_argument('--save_freq', type=int, default=25, help='save frequency')
     parser.add_argument('--batch_size', type=int, default=128, help='batch_size')
     parser.add_argument('--num_workers', type=int, default=8, help='num of workers to use')
-    parser.add_argument('--epochs', type=int, default=240, help='number of training epochs')
+    parser.add_argument('--epochs', type=int, default=1000, help='number of training epochs')
 
     # optimization
     parser.add_argument('--learning_rate', type=float, default=0.1, help='learning rate')
-    parser.add_argument('--lr_decay_epochs', type=str, default='120,160,200', help='where to decay lr, can be a list')
+    parser.add_argument('--lr_decay_epochs', type=str, default='150,250,350,450,550', help='where to decay lr, can be a list')
     parser.add_argument('--lr_decay_rate', type=float, default=0.1, help='decay rate for learning rate')
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam')
     parser.add_argument('--beta2', type=float, default=0.999, help='beta2 for Adam')
@@ -110,17 +110,19 @@ def parse_option():
     if opt.amp:
         opt.model_name = '{}_amp_{}'.format(opt.model_name, opt.opt_level)
 
-    opt.model_name = '{}_view_{}'.format(opt.model_name, opt.view)
+    # opt.model_name = '{}_view_{}'.format(opt.model_name, opt.view)
 
-    opt.model_folder = os.path.join(opt.model_path, opt.model_name)
     if opt.note != None:
-        opt.model_foler = os.path.join(opt.model_folder, opt.note)
+        opt.model_folder = os.path.join(opt.model_path, opt.note+'__'+opt.model_name)
+    else:
+        opt.model_folder = os.path.join(opt.model_path, opt.model_name)
     if not os.path.isdir(opt.model_folder):
         os.makedirs(opt.model_folder)
 
-    opt.tb_folder = os.path.join(opt.tb_path, opt.model_name)
     if opt.note != None:
-        opt.tb_folder = os.path.join(opt.tb_folder, opt.note)
+        opt.tb_folder = os.path.join(opt.tb_path, opt.note+'__'+opt.model_name)
+    else:
+        opt.tb_folder = os.path.join(opt.tb_path, opt.model_name)
     if not os.path.isdir(opt.tb_folder):
         os.makedirs(opt.tb_folder)
 
@@ -132,8 +134,8 @@ def parse_option():
 
 def get_train_loader(args):
     """get the train loader 数据增强/归一化"""
-    mean = [128, 128, 128]
-    std = [1, 1, 1]
+    mean = [0.5200442, 0.5257094, 0.517397]
+    std = [0.335111, 0.33463535, 0.33491987]
 
     train_transform = transforms.Compose([
         transforms.ToPILImage(),
@@ -209,13 +211,13 @@ def train_e2e(epoch, train_loader, model, contrast, criterion, optimizer, opt):
         # anchor,pos_sample shape: [batch_size, 1, channel, H, W]
         # neg_sample shape: [batch_size, K, channel, H, W]
         data_time.update(time.time() - end)
-        # inputs = [batch_size*(K+2), channel, H, W]
+        # inputs = [batch_size*(1+1+K), channel, H, W]
         # inputs' dim[0]: batch_size*[1 anchor,1 pos,K neg,1]
         batch_size = anchor.size(0)
-        # inputs shape --> [batch_size, (K+2), channel, H, W]
+        # inputs shape --> [batch_size, (1+1+K), channel, H, W]
         inputs = torch.cat((anchor, pos_sample, neg_sample), dim=1)
         inputs_shape = list(inputs.size())
-        # inputs shape --> [batch_size*(K+2), channel, H, W]
+        # inputs shape --> [batch_size*(1+1+K), channel, H, W]
         inputs = inputs.view((inputs_shape[0]*inputs_shape[1], inputs_shape[2], inputs_shape[3], inputs_shape[4]))
         inputs = inputs.float()
         if torch.cuda.is_available():
