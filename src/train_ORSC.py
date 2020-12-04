@@ -48,7 +48,7 @@ def parse_option():
 
     # optimization
     parser.add_argument('--learning_rate', type=float, default=0.1, help='learning rate')
-    parser.add_argument('--lr_decay_epochs', type=str, default='150,250,350,450,550', help='where to decay lr, can be a list')
+    parser.add_argument('--lr_decay_epochs', type=str, default='200,400,800', help='where to decay lr, can be a list')
     parser.add_argument('--lr_decay_rate', type=float, default=0.1, help='decay rate for learning rate')
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam')
     parser.add_argument('--beta2', type=float, default=0.999, help='beta2 for Adam')
@@ -65,9 +65,10 @@ def parse_option():
                                                                          'resnet50v2', 'resnet101v2', 'resnet18v2',
                                                                          'resnet50v3', 'resnet101v3', 'resnet18v3'])
     parser.add_argument('--softmax', action='store_true', help='using softmax contrastive loss rather than NCE')
-    parser.add_argument('--nce_k', type=int, default=8, help='负样本数量')
+    parser.add_argument('--nce_k', type=int, default=16, help='负样本数量')
     parser.add_argument('--nce_t', type=float, default=0.07)
     parser.add_argument('--nce_m', type=float, default=0.5, help='the momentum for dynamically updating the memory.')
+    parser.add_argument('--in_channel', type=int, default=3, help='dim of input image channel (3: RGB, 5: RGBXY)')
     parser.add_argument('--feat_dim', type=int, default=128, help='dim of feat for inner product')
 
     # dataset
@@ -104,8 +105,7 @@ def parse_option():
         opt.lr_decay_epochs.append(int(it))
 
     opt.method = 'softmax' if opt.softmax else 'nce'
-    opt.model_name = 'end2end_{}_{}_{}_lr_{}_decay_{}_batch_size_{}'.format(opt.method, opt.nce_k, opt.model, opt.learning_rate,
-                                                                    opt.weight_decay, opt.batch_size)
+    opt.model_name = 'end2end_{}_{}_batch_size_{}'.format(opt.method, opt.nce_k, opt.batch_size)
 
     if opt.amp:
         opt.model_name = '{}_amp_{}'.format(opt.model_name, opt.opt_level)
@@ -147,7 +147,8 @@ def get_train_loader(args):
     ])
     train_dataset = OffRoadDataset(args.data_folder, subset='train', 
                                                 neg_sample_num=args.nce_k, 
-                                                transform=train_transform, 
+                                                transform=train_transform,
+                                                channels=args.in_channel, 
                                                 patch_size=64)
     # train loader
     # TODO: 用sampler或batch_sampler放入tensorboard可视化
@@ -165,7 +166,7 @@ def get_train_loader(args):
 def set_model(args, n_data):
     # set the model
     if args.model == 'alexnet':
-        model = MyAlexNetCMC(args.feat_dim)
+        model = MyAlexNetCMC(args.feat_dim, in_channel=args.in_channel)
     # elif args.model.startswith('resnet'):
         # model = MyResNetsCMC(args.model)
     else:
@@ -207,7 +208,7 @@ def train_e2e(epoch, train_loader, model, contrast, criterion, optimizer, opt):
     probs_meter = AverageMeter()
 
     end = time.time()
-    for idx, (anchor, pos_sample, neg_sample) in enumerate(train_loader):
+    for idx, (anchor, pos_sample, neg_sample, _, _, _, _, _) in enumerate(train_loader):
         # anchor,pos_sample shape: [batch_size, 1, channel, H, W]
         # neg_sample shape: [batch_size, K, channel, H, W]
         data_time.update(time.time() - end)
@@ -317,6 +318,7 @@ def main():
         # tensorboard logger
         logger.log_value('loss', loss, epoch)
         logger.log_value('prob', prob, epoch)
+        logger.log_value('learning_rate', optimizer.param_groups[0]['lr'], epoch)
 
         # save model
         if epoch % args.save_freq == 0:
@@ -330,7 +332,7 @@ def main():
             }
             if args.amp:
                 state['amp'] = amp.state_dict()
-            save_file = os.path.join(args.model_folder, 'ckpt_epoch_{epoch}.pth'.format(epoch=epoch))
+            save_file = os.path.join(args.model_folder, 'ckpt_epoch_{epoch}_loss_{loss}.pth'.format(epoch=epoch, loss=loss))
             torch.save(state, save_file)
             # help release GPU memory
             del state
