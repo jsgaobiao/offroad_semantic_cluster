@@ -79,6 +79,12 @@ class OffRoadDataset(Dataset):
         frame_id = self.anchor_list[idx][0]  # anchor_list[i]: [frame_id, anchor_x, anchor_y, anchor_type]
         img_file = os.path.join(self.root, str(frame_id)+'.png')
         full_img = cv2.imread(img_file)
+        # 如果channel参数为5，则通道为RGBXY, 其中x,y通道值域[0,1]
+        if (self.channels == 5):
+            xy_img = np.zeros((full_img.shape[0], full_img.shape[1], 2), dtype=np.float32)
+            xy_img[:,:,0] = np.tile(np.expand_dims(np.arange(0, 1, 1/float(full_img.shape[0])).astype(np.float32), axis=1), (1,full_img.shape[1])) # 将x坐标归一化到0-255
+            xy_img[:,:,1] = np.tile(np.arange(0, 1, 1/float(full_img.shape[1])).astype(np.float32), (full_img.shape[0], 1)) # 将x坐标归一化到0-255
+            full_img = np.concatenate((full_img, xy_img), 2)
         anchor, anchor_xy = self.__getSample__(full_img, self.anchor_list[idx][1:], rand_sample=False)
 
         # 挑选出anchor_type一样的作为正样本
@@ -105,13 +111,32 @@ class OffRoadDataset(Dataset):
         anchor_tensor = torch.zeros(1, self.channels, 224, 224)
         pos_sample_tensor = torch.zeros(pos_sample.shape[0], self.channels, 224, 224)
         neg_sample_tensor = torch.zeros(neg_sample.shape[0], self.channels, 224, 224)
+
+        # 对RGB通道的transform
         # transform will change shape [num, H, W, channel] --> [num, channel, H, W]
         if self.transform is not None:
-            anchor_tensor[0] = self.transform(anchor[0])           # [1, H, W, channel] 
+            anchor_tensor[0][:3] = self.transform(anchor[0,:,:,:3].astype(np.uint8))           # [1, H, W, channel] 
             for i in range(pos_sample.shape[0]):
-                pos_sample_tensor[i] = self.transform(pos_sample[i])     # [P, H, W, channel]  default: P=1
+                pos_sample_tensor[i][:3] = self.transform(pos_sample[i,:,:,:3].astype(np.uint8))     # [P, H, W, channel]  default: P=1
             for i in range(neg_sample.shape[0]):
-                neg_sample_tensor[i] = self.transform(neg_sample[i])     # [K, H, W, channel] 
+                neg_sample_tensor[i][:3] = self.transform(neg_sample[i,:,:,:3].astype(np.uint8))     # [K, H, W, channel] 
+        # 如果是5通道（RGBXY）需要对XY通道单独做变换
+        if (self.channels == 5):
+            mean = [0.5, 0.5]
+            std = [0.2887, 0.2887]
+            anchor_tensor[0][3:] = torch.from_numpy(np.transpose(cv2.resize(anchor[0,:,:,3:], (224, 224)), (2,0,1))).to(anchor_tensor)
+            for i in range(pos_sample.shape[0]):
+                pos_sample_tensor[i][3:] = torch.from_numpy(np.transpose(cv2.resize(pos_sample[i,:,:,3:], (224, 224)), (2,0,1))).to(pos_sample_tensor)     # [P, H, W, channel]  default: P=1
+            for i in range(neg_sample.shape[0]):
+                neg_sample_tensor[i][3:] = torch.from_numpy(np.transpose(cv2.resize(neg_sample[i,:,:,3:], (224, 224)), (2,0,1))).to(neg_sample_tensor)     # [K, H, W, channel] 
+            xy_transform = transforms.Compose([
+                transforms.Normalize(mean=mean, std=std),
+            ])
+            anchor_tensor[0][3:] = xy_transform(anchor_tensor[0][3:])
+            for i in range(pos_sample.shape[0]):
+                pos_sample_tensor[i][3:] = xy_transform(pos_sample_tensor[i][3:])     # [P, H, W, channel]  default: P=1
+            for i in range(neg_sample.shape[0]):
+                neg_sample_tensor[i][3:] = xy_transform(neg_sample_tensor[i][3:])     # [K, H, W, channel] 
 
         return anchor_tensor, pos_sample_tensor, neg_sample_tensor, frame_id, full_img, anchor_xy, pos_sample_xy, neg_sample_xy
 

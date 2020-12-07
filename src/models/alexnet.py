@@ -7,7 +7,7 @@ import torch.nn as nn
 class MyAlexNetCMC(nn.Module):
     def __init__(self, feat_dim=128, in_channel=3):
         super(MyAlexNetCMC, self).__init__()
-        self.encoder = alexnet(feat_dim=feat_dim, in_channel=3)
+        self.encoder = alexnet(feat_dim=feat_dim, in_channel=in_channel)
         self.encoder = nn.DataParallel(self.encoder)
 
     def forward(self, sample, layer=8):

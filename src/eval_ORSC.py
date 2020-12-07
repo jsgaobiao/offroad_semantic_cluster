@@ -81,7 +81,7 @@ def get_data_loader(args, subset='train'):
     # data loader
     # TODO: 用sampler或batch_sampler放入tensorboard可视化
     data_loader = torch.utils.data.DataLoader(sub_dataset, batch_size=args.batch_size, 
-                                                            shuffle=True,
+                                                            shuffle=False,
                                                             num_workers=args.num_workers, 
                                                             pin_memory=True, 
                                                             sampler=None)
@@ -94,7 +94,7 @@ def caseStudy(args, _full_img, _anchor_xy, _pos_sample_xy, _neg_sample_xy, _pos_
     ''' 可视化选取的锚点和正负样本，并将它们的特征相似度绘制在图像上 '''
     anchor_width = 64
     anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,255,0)]
-    full_img = _full_img.numpy()
+    full_img = _full_img[:,:,:3].numpy().astype(np.uint8)
     anchor_xy = _anchor_xy.numpy()
     pos_sample_xy = _pos_sample_xy.numpy()
     neg_sample_xy = _neg_sample_xy.numpy()
@@ -135,6 +135,7 @@ def caseStudy(args, _full_img, _anchor_xy, _pos_sample_xy, _neg_sample_xy, _pos_
         neg_color = tuple(getColor(_feat[0], color_map))
         cv2.rectangle(full_img, tuple(p_left_top), tuple(p_right_down), neg_color, thickness=4)
         cv2.putText(full_img, "neg({:2f})".format(_feat[0]), tuple(p_left_top), cv2.FONT_HERSHEY_SIMPLEX, 1, neg_color, 2)
+    
     return full_img
 
 def calcAverageDis(args, model, data_loader):

@@ -16,7 +16,7 @@ import tensorboard_logger as tb_logger
 
 from torchvision import transforms, datasets
 # from dataset import RGB2Lab, RGB2YCbCr
-from util import adjust_learning_rate, AverageMeter
+from util import adjust_learning_rate, AverageMeter, Logger2File
 
 from models.alexnet import MyAlexNetCMC
 from models.resnet import MyResNetsCMC
@@ -41,7 +41,7 @@ def parse_option():
 
     parser.add_argument('--print_freq', type=int, default=10, help='print frequency')
     parser.add_argument('--tb_freq', type=int, default=500, help='tb frequency')
-    parser.add_argument('--save_freq', type=int, default=25, help='save frequency')
+    parser.add_argument('--save_freq', type=int, default=50, help='save frequency')
     parser.add_argument('--batch_size', type=int, default=128, help='batch_size')
     parser.add_argument('--num_workers', type=int, default=8, help='num of workers to use')
     parser.add_argument('--epochs', type=int, default=1000, help='number of training epochs')
@@ -118,6 +118,8 @@ def parse_option():
         opt.model_folder = os.path.join(opt.model_path, opt.model_name)
     if not os.path.isdir(opt.model_folder):
         os.makedirs(opt.model_folder)
+    # 屏幕输出的训练log保存到model所在的文件夹
+    sys.stdout = Logger2File(os.path.join(opt.model_folder, "train.log"))
 
     if opt.note != None:
         opt.tb_folder = os.path.join(opt.tb_path, opt.note+'__'+opt.model_name)
@@ -332,7 +334,7 @@ def main():
             }
             if args.amp:
                 state['amp'] = amp.state_dict()
-            save_file = os.path.join(args.model_folder, 'ckpt_epoch_{epoch}_loss_{loss}.pth'.format(epoch=epoch, loss=loss))
+            save_file = os.path.join(args.model_folder, 'ckpt_epoch_{epoch}_loss_{loss:.4f}.pth'.format(epoch=epoch, loss=loss))
             torch.save(state, save_file)
             # help release GPU memory
             del state
