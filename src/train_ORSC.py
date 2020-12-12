@@ -48,7 +48,7 @@ def parse_option():
 
     # optimization
     parser.add_argument('--learning_rate', type=float, default=0.1, help='learning rate')
-    parser.add_argument('--lr_decay_epochs', type=str, default='200,400,800', help='where to decay lr, can be a list')
+    parser.add_argument('--lr_decay_epochs', type=str, default='200,450,800', help='where to decay lr, can be a list')
     parser.add_argument('--lr_decay_rate', type=float, default=0.1, help='decay rate for learning rate')
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam')
     parser.add_argument('--beta2', type=float, default=0.999, help='beta2 for Adam')
@@ -78,6 +78,7 @@ def parse_option():
     parser.add_argument('--data_folder', type=str, default=None, help='path to data')
     parser.add_argument('--model_path', type=str, default="trained_models", help='path to save model')
     parser.add_argument('--tb_path', type=str, default="tensorboards", help='path to tensorboard')
+    parser.add_argument('--subset', type=str, default="train", help='subset for training')
     parser.add_argument('--note', type=str, default=None, help='comments to current train settings')
 
     # add new views
@@ -147,7 +148,7 @@ def get_train_loader(args):
         transforms.ToTensor(),
         transforms.Normalize(mean=mean, std=std),
     ])
-    train_dataset = OffRoadDataset(args.data_folder, subset='train', 
+    train_dataset = OffRoadDataset(args.data_folder, subset=args.subset, 
                                                 neg_sample_num=args.nce_k, 
                                                 transform=train_transform,
                                                 channels=args.in_channel, 
@@ -210,7 +211,7 @@ def train_e2e(epoch, train_loader, model, contrast, criterion, optimizer, opt):
     probs_meter = AverageMeter()
 
     end = time.time()
-    for idx, (anchor, pos_sample, neg_sample, _, _, _, _, _) in enumerate(train_loader):
+    for idx, (anchor, pos_sample, neg_sample, _, _, _, _, _, _) in enumerate(train_loader):
         # anchor,pos_sample shape: [batch_size, 1, channel, H, W]
         # neg_sample shape: [batch_size, K, channel, H, W]
         data_time.update(time.time() - end)

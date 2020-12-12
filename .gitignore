@@ -6,6 +6,7 @@ src/models/__pycache__/
 src/tensorboards/
 src/imagenet100.txt
 data/*.avi
+data/*/
 data/train/
 .vscode/
 *.pyc

@@ -21,6 +21,7 @@ def parse_option():
     parser = argparse.ArgumentParser('argument for evaluation')
     parser.add_argument('--data_folder', type=str, default=None, help='path to data')
     parser.add_argument('--print_freq', type=int, default=10, help='print frequency')
+    parser.add_argument('--subset', type=str, default="train", help='subset for training')
     # resume path
     parser.add_argument('--model_path', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
     parser.add_argument('--result_path', type=str, default="results", help='path to save result')
@@ -93,7 +94,7 @@ def get_data_loader(args, subset='train'):
 def caseStudy(args, _full_img, _anchor_xy, _pos_sample_xy, _neg_sample_xy, _pos_feat_dis, _neg_feat_dis, color_map):
     ''' 可视化选取的锚点和正负样本，并将它们的特征相似度绘制在图像上 '''
     anchor_width = 64
-    anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,255,0)]
+    anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,255,0), (255, 191, 0), (0, 191, 255), (128, 0, 255)]
     full_img = _full_img[:,:,:3].numpy().astype(np.uint8)
     anchor_xy = _anchor_xy.numpy()
     pos_sample_xy = _pos_sample_xy.numpy()
@@ -122,19 +123,19 @@ def caseStudy(args, _full_img, _anchor_xy, _pos_sample_xy, _neg_sample_xy, _pos_
     for _p in anchor_xy:
         p_left_top, p_right_down = getPatchXY(full_img, _p[0], _p[1], anchor_width)
         cv2.rectangle(full_img, tuple(p_left_top), tuple(p_right_down), anchor_color[0], thickness=4)
-        cv2.putText(full_img, "anchor", tuple(p_left_top), cv2.FONT_HERSHEY_SIMPLEX, 1, anchor_color[0], 2)
+        cv2.putText(full_img, "anchor", tuple(p_right_down), cv2.FONT_HERSHEY_SIMPLEX, 1, anchor_color[0], 2)
     # 绘制正样本
     for (_p, _feat) in zip(pos_sample_xy, pos_feat_dis):
         p_left_top, p_right_down = getPatchXY(full_img, _p[0], _p[1], anchor_width)
         pos_color = tuple(getColor(_feat[0], color_map))
         cv2.rectangle(full_img, tuple(p_left_top), tuple(p_right_down), pos_color, thickness=4)
-        cv2.putText(full_img, "pos({:2f})".format(_feat[0]), tuple(p_left_top), cv2.FONT_HERSHEY_SIMPLEX, 1, pos_color, 2)
+        cv2.putText(full_img, "P({:.2f})".format(_feat[0]), tuple(p_right_down), cv2.FONT_HERSHEY_SIMPLEX, 1, pos_color, 2)
     # 绘制负样本
     for (_p, _feat) in zip(neg_sample_xy, neg_feat_dis):
         p_left_top, p_right_down = getPatchXY(full_img, _p[0], _p[1], anchor_width)
         neg_color = tuple(getColor(_feat[0], color_map))
         cv2.rectangle(full_img, tuple(p_left_top), tuple(p_right_down), neg_color, thickness=4)
-        cv2.putText(full_img, "neg({:2f})".format(_feat[0]), tuple(p_left_top), cv2.FONT_HERSHEY_SIMPLEX, 1, neg_color, 2)
+        cv2.putText(full_img, "N({:.2f})".format(_feat[0]), tuple(p_right_down), cv2.FONT_HERSHEY_SIMPLEX, 1, neg_color, 2)
     
     return full_img
 
@@ -146,7 +147,7 @@ def calcAverageDis(args, model, data_loader):
     # 根据样本与锚点的距离，绘制不同的颜色进行可视化
     color_map = cv2.applyColorMap(np.arange(0, 256, dtype=np.uint8), cv2.COLORMAP_JET)
     with torch.no_grad():
-        for idx, (anchor, pos_sample, neg_sample, frame_id, full_img, anchor_xy, pos_sample_xy, neg_sample_xy) in enumerate(data_loader):
+        for idx, (anchor, pos_sample, neg_sample, frame_id, full_img, anchor_xy, pos_sample_xy, neg_sample_xy, _) in enumerate(data_loader):
             # anchor shape: [batch_size, 1, channel, H, W] # neg_sample,pos_sample shape: [batch_size, K, channel, H, W]
             batch_size = anchor.size(0)
             # inputs shape --> [batch_size, (1+2K), channel, H, W]
@@ -194,7 +195,7 @@ def main():# 供直接运行本脚本
     args = parse_option()
 
     # set the data loader (n_data: dataset size)
-    data_loader, n_data = get_data_loader(args, subset="train")
+    data_loader, n_data = get_data_loader(args, subset=args.subset)
 
     # load model
     model = set_model(args)
@@ -202,6 +203,9 @@ def main():# 供直接运行本脚本
     # 随机抽取正负样本对，并计算和锚点的平均距离
     posDis, negDis = calcAverageDis(args, model, data_loader)
     print('positive sample average distance = {}, negative sample average distance = {}'.format(posDis, negDis))
+    fout = open(os.path.join(args.result_path,"average_dis.log"), 'w')
+    fout.write('positive sample average distance = {}, negative sample average distance = {}'.format(posDis, negDis))
+    fout.close()
 
 if __name__ == '__main__':
     main()

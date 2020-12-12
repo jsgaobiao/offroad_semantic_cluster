@@ -11,7 +11,7 @@ import random
 class OffRoadDataset(Dataset):
     def __init__(self, root, subset='train', pos_sample_num=1, neg_sample_num=32, transform=None, channels=3, patch_size=64):
         super(OffRoadDataset, self).__init__()
-        self.root = os.path.join(root, 'train')
+        self.root = os.path.join(root, subset)
         self.neg_sample_num = neg_sample_num
         self.pos_sample_num = pos_sample_num
         self.transform = transform
@@ -138,7 +138,8 @@ class OffRoadDataset(Dataset):
             for i in range(neg_sample.shape[0]):
                 neg_sample_tensor[i][3:] = xy_transform(neg_sample_tensor[i][3:])     # [K, H, W, channel] 
 
-        return anchor_tensor, pos_sample_tensor, neg_sample_tensor, frame_id, full_img, anchor_xy, pos_sample_xy, neg_sample_xy
+        anchor_type = self.anchor_list[idx][3]
+        return anchor_tensor, pos_sample_tensor, neg_sample_tensor, frame_id, full_img, anchor_xy, pos_sample_xy, neg_sample_xy, anchor_type
 
 
 
