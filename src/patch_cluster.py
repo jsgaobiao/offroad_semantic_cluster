@@ -122,33 +122,36 @@ def calcAllFeature(args, model, data_loader, n_data):
             np.save(os.path.join(args.result_path, "all_patch_features.npy"), all_features)
     return all_features
 
+def getPatchXY(_img, _x, _y, anchor_width):
+    ''' 
+        从图像img中获取中心坐标为(_x, _y)的patch左上右下角坐标 
+        _x: 宽， _y: 高
+    '''
+    h, w = _img.shape[0:2]
+    ps = anchor_width // 2
+    p_left_top = [max(_x-ps, 0), max(_y-ps, 0)]
+    p_right_down = [min(_x+ps, w), min(_y+ps, h)]   # 右侧开区间
+    # 如果在图像边缘处要特殊处理
+    if (p_right_down[0] - p_left_top[0] < anchor_width):
+        if (p_left_top[0] == 0): p_right_down[0] = p_left_top[0] + anchor_width
+        if (p_right_down[0] == w): p_left_top[0] = p_right_down[0] - anchor_width
+    if (p_right_down[1] - p_left_top[1] < anchor_width):
+        if (p_left_top[1] == 0): p_right_down[1] = p_left_top[1] + anchor_width
+        if (p_right_down[1] == h): p_left_top[1] = p_right_down[1] - anchor_width
+    return p_left_top, p_right_down
+
+def getColor(_v, color_map):
+    # _v的值在[e^(-1), e]之间， 归一化到0-255
+    _dv = int(max(min((_v - math.exp(-1)) / (math.exp(1) - math.exp(-1)) * 255, 255), 0))
+    return [int(color_map[_dv][0][0]), int(color_map[_dv][0][1]), int(color_map[_dv][0][2])]
+
 def predict_patch(args, data_loader, k_means_model, cluster_precision):
     ''' 
         可视化聚类后的锚点，并将它们绘制在图像上 (同时绘制锚点标注的结果、聚类标签的结果和聚类吻合度)
     '''
     anchor_width = 64
     anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,255,0), (255, 191, 0), (0, 191, 255), (128, 0, 255)]
-
-    def getPatchXY(_img, _x, _y, anchor_width):
-        ''' 从图像img中获取中心坐标为(_x, _y)的patch左上右下角坐标 '''
-        h, w = _img.shape[0:2]
-        ps = anchor_width // 2
-        p_left_top = [max(_x-ps, 0), max(_y-ps, 0)]
-        p_right_down = [min(_x+ps, w), min(_y+ps, h)]   # 右侧开区间
-        # 如果在图像边缘处要特殊处理
-        if (p_right_down[0] - p_left_top[0] < anchor_width):
-            if (p_left_top[0] == 0): p_right_down[0] = p_left_top[0] + anchor_width
-            if (p_right_down[0] == w): p_left_top[0] = p_right_down[0] - anchor_width
-        if (p_right_down[1] - p_left_top[1] < anchor_width):
-            if (p_left_top[1] == 0): p_right_down[1] = p_left_top[1] + anchor_width
-            if (p_right_down[1] == h): p_left_top[1] = p_right_down[1] - anchor_width
-        return p_left_top, p_right_down
-
-    def getColor(_v, color_map):
-        # _v的值在[e^(-1), e]之间， 归一化到0-255
-        _dv = int(max(min((_v - math.exp(-1)) / (math.exp(1) - math.exp(-1)) * 255, 255), 0))
-        return [int(color_map[_dv][0][0]), int(color_map[_dv][0][1]), int(color_map[_dv][0][2])]
-
+ 
     last_frame_id = -1
     for idx, (anchor, _, _, frame_id, _full_img, _anchor_xy, _, _, anchor_type) in enumerate(data_loader):
         # 需要将同一frame图片上的若干锚点都画上后，再保存图片；如果frame_id没变化，则不刷新图片full_img
@@ -168,10 +171,10 @@ def predict_patch(args, data_loader, k_means_model, cluster_precision):
             p_label = k_means_model.labels_[idx]
             # 按照聚类标签绘制patch
             cv2.rectangle(full_img, tuple(p_left_top), tuple(p_right_down), anchor_color[p_label], thickness=4)
-            cv2.putText(full_img, "{:d}".format(p_label), tuple(p_right_down), cv2.FONT_HERSHEY_SIMPLEX, 1.5, anchor_color[p_label], 2)
+            cv2.putText(full_img, "Label {:d}".format(p_label), tuple(p_right_down), cv2.FONT_HERSHEY_SIMPLEX, 1.5, anchor_color[p_label], 2)
             # 按照anchor type绘制patch
             cv2.rectangle(full_img_anchor, tuple(p_left_top), tuple(p_right_down), anchor_color[_anchor_t], thickness=4)
-            cv2.putText(full_img_anchor, "{:d}".format(_anchor_t), tuple(p_right_down), cv2.FONT_HERSHEY_SIMPLEX, 1.5, anchor_color[_anchor_t], 2)
+            # cv2.putText(full_img_anchor, "{:d}".format(_anchor_t), tuple(p_right_down), cv2.FONT_HERSHEY_SIMPLEX, 1.5, anchor_color[_anchor_t], 2)
         # 将当前帧对应的聚类标签吻合度画到图上
         cv2.putText(full_img, "Prec: {:.4f}".format(cluster_precision[frame_id.numpy()[0]]), (50,50), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,255), 3)
         # print info
@@ -179,6 +182,59 @@ def predict_patch(args, data_loader, k_means_model, cluster_precision):
             print('Save clustered anchors: [{0}/{1}]'.format(idx + 1, len(data_loader)))
     # 保存最后一张图
     cv2.imwrite(os.path.join(args.result_path, str(frame_id.numpy()[0])+".png"), np.concatenate((full_img, full_img_anchor), axis=1))
+
+
+def predict_all_patch(args, data_loader, model, k_means_model):
+    ''' 滑动窗选取图像上所有patch，预测每个patch归属的类别 '''
+    mean = [0.5200442, 0.5257094, 0.517397]
+    std = [0.335111, 0.33463535, 0.33491987]
+    data_transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((224,224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=std),
+    ])
+    anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,255,0), (255, 191, 0), (0, 191, 255), (128, 0, 255)]
+    last_frame_id = -1
+    tot_frame = 0
+    with torch.no_grad():
+        for idx, (anchor, _, _, frame_id, _full_img, _, _, _, _) in enumerate(data_loader):
+            # 来了一帧新的frame，处理上面的所有patch
+            if last_frame_id != frame_id.numpy()[0]:                
+                full_img = _full_img[0,:,:,:3].numpy().astype(np.uint8)
+                _patch_mask = np.zeros((full_img.shape), dtype=np.uint8)
+                # 滑动窗处理所有的patch，先不考虑天空，只滑动下半张图片
+                patch_size = 64
+                pred_res = 64    # 分类的分辨率：每个patch中间pred_res*pred_res的方块赋予该patch的类别标签
+                for i in range(full_img.shape[0]//2, full_img.shape[0]-pred_res//2, pred_res):
+                    for j in range(pred_res//2, full_img.shape[1]-pred_res//2, pred_res):
+                        p_left_top, p_right_down = getPatchXY(full_img, j, i, patch_size)
+                        # 滑动窗得到的小patch
+                        _patch = full_img[p_left_top[1]:p_right_down[1], p_left_top[0]:p_right_down[0]]
+                        # 对patch进行transform后计算其特征
+                        _patch = data_transform(_patch)
+                        # inputs shape --> [batch_size, (1), channel, H, W]
+                        inputs = _patch
+                        inputs_shape = list(inputs.size())
+                        # inputs shape --> [batch_size*(1), channel, H, W]
+                        inputs = inputs.view((1, inputs_shape[0], inputs_shape[1], inputs_shape[2]))
+                        inputs = inputs.float()
+                        if torch.cuda.is_available():
+                            inputs = inputs.cuda()
+                        # ===================forward=====================
+                        _patch_feature = model(inputs)     # [batch_size*(1), feature_dim]
+                        _patch_label = k_means_model.predict(_patch_feature.cpu().numpy())
+                        # 将patch分类得到的类别标签绘制到图像上（只绘制i,j为中心，pred_res*pred_res的方块）
+                        _patch_mask = cv2.rectangle(_patch_mask, (j-pred_res,i-pred_res), (j+pred_res,i+pred_res), anchor_color[_patch_label[0]], thickness=-1) #thickness=-1 表示矩形框内颜色填充
+                # alpha 为第一张图片的透明度，beta 为第二张图片的透明度 cv2.addWeighted 将原始图片与 mask 融合
+                full_img = cv2.addWeighted(full_img, 1, _patch_mask, 0.2, 0)
+                cv2.imwrite(os.path.join(args.result_path, str(frame_id.numpy()[0])+"_pred_all.png"), full_img)        
+                last_frame_id = frame_id.numpy()[0]
+                # print info
+                tot_frame += 1
+                print('Save fine segmentation: [{0}]'.format(tot_frame))
+            else:
+                continue
 
 def evalClusterResult(args, n_data, data_loader, k_means_model):
     '''
@@ -242,7 +298,7 @@ def pcaVisualize(args, all_features, k_means_model):
     x_pca = pca.fit(all_features).transform(all_features)
     print("explained_variance_ratio : {}".format(pca.explained_variance_ratio_))
     ax = plt.figure()
-    for c, lab in zip('rgbcmykw', range(args.kmeans)):
+    for c, lab in zip('rgbymckw', range(args.kmeans)):
         plt.scatter(x_pca[k_means_model.labels_==lab, 0], x_pca[k_means_model.labels_==lab, 1], c=c, label=lab)
     plt.xlabel('Dimension1')
     plt.ylabel('Dimension2')
@@ -271,14 +327,17 @@ def main():# 供直接运行本脚本
     # 计算聚类结果和锚点标注的吻合度
     cluster_precision = evalClusterResult(args, n_data, data_loader, k_means_model)
 
-    # 预测每个patch的类别并保存可视化结果
+    # 预测每个anchor(patch)的类别并保存可视化结果
     print("Start predicting anchor labels...")
     predict_patch(args, data_loader, k_means_model, cluster_precision)
 
     # PCA可视化类别簇
     print("Start PCA visualization...")
     pcaVisualize(args, all_features, k_means_model)
-        
+
+    # 滑动窗预测图像上所有patch的类别并保存可视化结果
+    print("Start predicting all patch labels...")
+    predict_all_patch(args, data_loader, model, k_means_model)
 
 
 if __name__ == '__main__':
