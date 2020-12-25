@@ -57,8 +57,8 @@ def drawAnchors(img, anchors):
 
 ###################################################
 #载入已有标注结果
-if os.path.isfile(os.path.join(OUTPUT_DIR, RAW_DATA_FILE+"_anchors_annotation.npy")):
-    anchor_dict = np.load(os.path.join(OUTPUT_DIR, RAW_DATA_FILE+"_anchors_annotation.npy")).item()
+if os.path.isfile(os.path.join(OUTPUT_DIR, "anchors_annotation.npy")):
+    anchor_dict = np.load(os.path.join(OUTPUT_DIR, "anchors_annotation.npy")).item()
 cv2.namedWindow('video')
 cv2.setMouseCallback('video', label_anchor_mouse_callback)
 cap = cv2.VideoCapture(RAW_DATA_FILE)  # 读取待标注数据
@@ -99,6 +99,7 @@ while (cap.isOpened()):
         flag_next_frame = False
         anchor_type = 0
     if not ret:
+        save_anchor_img_to_file()
         break
     waitkey_time = 1 if flag_playing_video else 0
     # 当前帧的anchors
