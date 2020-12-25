@@ -4,8 +4,8 @@ import torch
 import cv2
 import os
 import math
-import sys
-from torchvision import transforms, datasets
+import time
+from torchvision import transforms
 from models.alexnet import MyAlexNetCMC
 from offroad_dataset import OffRoadDataset
 import matplotlib.pyplot as plt
@@ -265,6 +265,7 @@ def predict_vidoe(args, model, k_means_model):
             ret, full_img = cap.read() # 读入一帧图像
             frame_id = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
             if not ret: # 读完整段视频，退出
+                print('Video end!')
                 break
             _patch_mask = np.zeros((full_img.shape), dtype=np.uint8)
             # 滑动窗处理所有的patch，先不考虑天空，只滑动下半张图片
@@ -344,8 +345,10 @@ def eval_dis_2_road(args, data_loader, model, k_means_model):
             road_patch_feature = model(inputs)     # [batch_size*(1), feature_dim]
 
             ######################## 滑动窗处理所有的patch计算它们与road patch的距离，先不考虑天空，只滑动下半张图片 ########################
+            
             for i in range(full_img.shape[0]//2, full_img.shape[0]-pred_res//2, pred_res):
                 for j in range(pred_res//2, full_img.shape[1]-pred_res//2, pred_res):
+                    time0 = time.time()
                     p_left_top, p_right_down = getPatchXY(full_img, j, i, patch_size)
                     # 滑动窗得到的小patch
                     _patch = full_img[p_left_top[1]:p_right_down[1], p_left_top[0]:p_right_down[0]]
@@ -361,13 +364,16 @@ def eval_dis_2_road(args, data_loader, model, k_means_model):
                         inputs = inputs.cuda()
                     # ===================forward=====================
                     _patch_feature = model(inputs)     # [batch_size*(1), feature_dim]
+                    time1 = time.time()
                     # _patch_label = k_means_model.predict(_patch_feature.cpu().numpy())
                     f_dis = torch.mm(_patch_feature, road_patch_feature.view(args.feat_dim, -1))    # 范围[-1,1]
                     f_dis = torch.exp(f_dis)
                     # 根据patch与road_patch的特征距离可视化颜色，然后绘制到图像上（只绘制i,j为中心，pred_res*pred_res的方块）
                     _patch_mask = cv2.rectangle(_patch_mask, (j-pred_res,i-pred_res), (j+pred_res,i+pred_res), tuple(getColor(f_dis, color_map)), thickness=-1) #thickness=-1 表示矩形框内颜色填充
+                    time2 = time.time()
+                    print("time cost: {} / {} / {}".format(time1-time0, time2-time1))
             # alpha 为第一张图片的透明度，beta 为第二张图片的透明度 cv2.addWeighted 将原始图片与 mask 融合
-            full_img = cv2.addWeighted(full_img, 1, _patch_mask, 0.2, 0)
+            full_img = cv2.addWeighted(full_img, 1, _patch_mask, 0.4, 0)
             cv2.imwrite(os.path.join(args.result_path.replace("cluster_results", "drivable_dis"), str(frame_id)+"_dis2road.png"), full_img)        
             # print info
             print('Save distance to road patch image: [{0}/{1}]'.format(frame_id, tot_frames))
@@ -434,8 +440,13 @@ def pcaVisualize(args, all_features, k_means_model):
     x_pca = pca.fit(all_features).transform(all_features)
     print("explained_variance_ratio : {}".format(pca.explained_variance_ratio_))
     ax = plt.figure()
+    # 按照聚类结果的颜色可视化
     for c, lab in zip('rgbymckw', range(args.kmeans)):
         plt.scatter(x_pca[k_means_model.labels_==lab, 0], x_pca[k_means_model.labels_==lab, 1], c=c, label=lab)
+    # 按照训练集和测试集可视化 for DEBUG
+    # plt.scatter(x_pca[:564,0], x_pca[:564,1], c='r', label='train', alpha = 0.25)
+    # plt.scatter(x_pca[564:,0], x_pca[564:,1], c='g', label='test', alpha = 0.25)
+
     plt.xlabel('Dimension1')
     plt.ylabel('Dimension2')
     plt.title('clusters')
@@ -472,19 +483,20 @@ def main():# 供直接运行本脚本
     # predict_patch(args, data_loader, k_means_model, cluster_precision)
 
     # PCA可视化类别簇
-    # print("Start PCA visualization...")
-    # pcaVisualize(args, all_features, k_means_model)
+    print("Start PCA visualization...")
+    pcaVisualize(args, all_features, k_means_model)
 
     # 滑动窗预测图像上所有patch的类别并保存可视化结果
     # print("Start predicting all patch labels...")
     # predict_all_patch(args, data_loader, model, k_means_model)
 
     # 假设镜头前为路面区域，度量其他patch到该区域的特征距离
-    eval_dis_2_road(args, data_loader, model, k_means_model)
+    # eval_dis_2_road(args, data_loader, model, k_means_model)
+
     # 将所有帧的可视化结果拼成video
-    # if (args.pre_video):
-    #     print("Start predicting segmentation of video {}".format(args.pre_video))
-    #     predict_vidoe(args, model, k_means_model)
+    if (args.pre_video):
+        print("Start predicting segmentation of video {}".format(args.pre_video))
+        predict_vidoe(args, model, k_means_model)
 
 if __name__ == '__main__':
     main()
