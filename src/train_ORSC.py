@@ -143,6 +143,8 @@ def get_train_loader(args):
     train_transform = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize((224,224)),
+        transforms.RandomGrayscale(p=0.2),
+        transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.4),
         transforms.RandomHorizontalFlip(),
         transforms.RandomVerticalFlip(),
         transforms.ToTensor(),
