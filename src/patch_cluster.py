@@ -20,6 +20,7 @@ def parse_option():
     parser.add_argument('--subset', type=str, default="train", help='subset for training')
     parser.add_argument('--kmeans', type=int, help='kmeans聚类的类别数量')
     parser.add_argument('--pre_video',type=str, default="", help='directory of video for each frame\'s segmentation')
+    parser.add_argument('--batch_pred', type=int, default=8000, help='将多个patch放到一个batch中再进行标签预测，加快计算速度')
     # resume path
     parser.add_argument('--model_path', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
     parser.add_argument('--result_path', type=str, default="results", help='path to save result')
@@ -89,12 +90,12 @@ def get_data_loader(args, subset='train'):
     # num of samples
     n_data = len(sub_dataset)
     print('number of samples (subset:{}): {}'.format(subset, n_data))
-    return data_loader, n_data
+    return data_loader, n_data, sub_dataset
 
-def calcAllFeature(args, model, data_loader, n_data):
+def calcAllFeature(args, model, data_loader, n_data, recalc_feature=True):
     ''' 计算所有patch的特征向量，并保存 '''
     # 如果存在已经保存的结果，就载入
-    if os.path.isfile(os.path.join(args.result_path, "all_patch_features.npy")):
+    if os.path.isfile(os.path.join(args.result_path, "all_patch_features.npy")) and recalc_feature==False:
         all_features = np.load(os.path.join(args.result_path, "all_patch_features.npy"))
     else:
         # 否则，计算所有patch的特征
@@ -187,7 +188,7 @@ def predict_patch(args, data_loader, k_means_model, cluster_precision):
 
 
 def predict_all_patch(args, data_loader, model, k_means_model):
-    ''' 滑动窗选取图像上所有patch，预测每个patch归属的类别 '''
+    ''' [只处理有标注锚点的帧] 滑动窗选取图像上所有patch，预测每个patch归属的类别 '''
     mean = [0.5200442, 0.5257094, 0.517397]
     std = [0.335111, 0.33463535, 0.33491987]
     data_transform = transforms.Compose([
@@ -208,6 +209,7 @@ def predict_all_patch(args, data_loader, model, k_means_model):
                 # 滑动窗处理所有的patch，先不考虑天空，只滑动下半张图片
                 patch_size = 64
                 pred_res = 64    # 分类的分辨率：每个patch中间pred_res*pred_res的方块赋予该patch的类别标签
+               
                 for i in range(full_img.shape[0]//2, full_img.shape[0]-pred_res//2, pred_res):
                     for j in range(pred_res//2, full_img.shape[1]-pred_res//2, pred_res):
                         p_left_top, p_right_down = getPatchXY(full_img, j, i, patch_size)
@@ -228,6 +230,7 @@ def predict_all_patch(args, data_loader, model, k_means_model):
                         _patch_label = k_means_model.predict(_patch_feature.cpu().numpy())
                         # 将patch分类得到的类别标签绘制到图像上（只绘制i,j为中心，pred_res*pred_res的方块）
                         _patch_mask = cv2.rectangle(_patch_mask, (j-pred_res,i-pred_res), (j+pred_res,i+pred_res), anchor_color[_patch_label[0]], thickness=-1) #thickness=-1 表示矩形框内颜色填充
+
                 # alpha 为第一张图片的透明度，beta 为第二张图片的透明度 cv2.addWeighted 将原始图片与 mask 融合
                 full_img = cv2.addWeighted(full_img, 1, _patch_mask, 0.2, 0)
                 cv2.imwrite(os.path.join(args.result_path, str(frame_id.numpy()[0])+"_pred_all.png"), full_img)        
@@ -240,7 +243,7 @@ def predict_all_patch(args, data_loader, model, k_means_model):
 
 def predict_vidoe(args, model, k_means_model):
     '''
-        预测视频中每一帧的分割结果
+        [处理所有视频帧] 预测视频中每一帧的分割结果
     '''
     mean = [0.5200442, 0.5257094, 0.517397]
     std = [0.335111, 0.33463535, 0.33491987]
@@ -268,32 +271,54 @@ def predict_vidoe(args, model, k_means_model):
                 print('Video end!')
                 break
             _patch_mask = np.zeros((full_img.shape), dtype=np.uint8)
+            batch_cnt = 0   # 将args.batch_pred个patch放入一个batch中再计算特征
+            _patch_batch = []
+            i_batch = []
+            j_batch = []
             # 滑动窗处理所有的patch，先不考虑天空，只滑动下半张图片
             for i in range(full_img.shape[0]//2, full_img.shape[0]-pred_res//2, pred_res):
                 for j in range(pred_res//2, full_img.shape[1]-pred_res//2, pred_res):
                     p_left_top, p_right_down = getPatchXY(full_img, j, i, patch_size)
                     # 滑动窗得到的小patch
                     _patch = full_img[p_left_top[1]:p_right_down[1], p_left_top[0]:p_right_down[0]]
-                    # 对patch进行transform后计算其特征
-                    _patch = data_transform(_patch)
-                    # inputs shape --> [batch_size, (1), channel, H, W]
-                    inputs = _patch
-                    inputs_shape = list(inputs.size())
-                    # inputs shape --> [batch_size*(1), channel, H, W]
-                    inputs = inputs.view((1, inputs_shape[0], inputs_shape[1], inputs_shape[2]))
-                    inputs = inputs.float()
-                    if torch.cuda.is_available():
-                        inputs = inputs.cuda()
-                    # ===================forward=====================
-                    _patch_feature = model(inputs)     # [batch_size*(1), feature_dim]
-                    _patch_label = k_means_model.predict(_patch_feature.cpu().numpy())
-                    # 将patch分类得到的类别标签绘制到图像上（只绘制i,j为中心，pred_res*pred_res的方块）
-                    _patch_mask = cv2.rectangle(_patch_mask, (j-pred_res,i-pred_res), (j+pred_res,i+pred_res), anchor_color[_patch_label[0]], thickness=-1) #thickness=-1 表示矩形框内颜色填充
+                    # 对patch进行transform
+                    _patch_batch.append(data_transform(_patch).cpu().numpy())
+                    i_batch.append(i)
+                    j_batch.append(j)
+                    batch_cnt += 1
+                    # 如果凑够了args.batch_pred个patch，则一起计算特征
+                    if (batch_cnt % args.batch_pred == 0) or (i+pred_res >= full_img.shape[0]-pred_res//2 and j+pred_res >= full_img.shape[1]-pred_res//2):
+                        if (i+pred_res >= full_img.shape[0]-pred_res//2 and j+pred_res >= full_img.shape[1]-pred_res//2):
+                            print('last batch:{}'.format(batch_cnt))
+                        time0 = time.time()
+                        # inputs shape --> [batch_size, (1), channel, H, W]
+                        inputs = torch.Tensor(_patch_batch)
+                        inputs_shape = list(inputs.size())
+                        # inputs shape --> [batch_size*(1), channel, H, W]
+                        inputs = inputs.view((inputs_shape[0], inputs_shape[1], inputs_shape[2], inputs_shape[3]))
+                        inputs = inputs.float()
+                        if torch.cuda.is_available():
+                            inputs = inputs.cuda()
+                        # ===================forward=====================
+                        _patch_feature_batch = model(inputs)     # [batch_size*(1), feature_dim]
+                        time1 = time.time()
+                        # 逐个预测类别并可视化
+                        for _patch_feature, _i, _j in zip(_patch_feature_batch, i_batch, j_batch):
+                            _patch_label = k_means_model.predict(np.expand_dims(_patch_feature.cpu().numpy(), axis=0))
+                            # 将patch分类得到的类别标签绘制到图像上（只绘制i,j为中心，pred_res*pred_res的方块）
+                            _patch_mask = cv2.rectangle(_patch_mask, (_j-pred_res,_i-pred_res), (_j+pred_res,_i+pred_res), anchor_color[_patch_label[0]], thickness=-1) #thickness=-1 表示矩形框内颜色填充
+                        # 清空上一个batch
+                        batch_cnt = 0
+                        _patch_batch = []
+                        i_batch = []
+                        j_batch = []
+                        time2 = time.time()
+                        print("time cost: {:.3f} / {:.3f}".format(time1-time0, time2-time1))
             # alpha 为第一张图片的透明度，beta 为第二张图片的透明度 cv2.addWeighted 将原始图片与 mask 融合
             full_img = cv2.addWeighted(full_img, 1, _patch_mask, 0.2, 0)
-            cv2.imwrite(os.path.join(args.result_path, "video_pred", str(frame_id)+"_pred_all.png"), full_img)        
+            cv2.imwrite(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.png"), full_img)        
             # print info
-            print('Save video fine segmentation: [{0}]'.format(frame_id))
+            print('Save video fine segmentation: [{0}] {1}'.format(frame_id, os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.png")))
 
 def getColor(_v, color_map):
     # _v的值在[e^(-1), e]之间， 归一化到0-255
@@ -434,7 +459,7 @@ def evalClusterResult(args, n_data, data_loader, k_means_model):
     return cluster_precision
     
 
-def pcaVisualize(args, all_features, k_means_model):
+def pcaVisualize(args, all_features, k_means_model, sub_dataset=None):
     '''PCA降成2维特征后，可视化类别簇'''
     pca = PCA(n_components=2)
     x_pca = pca.fit(all_features).transform(all_features)
@@ -442,16 +467,30 @@ def pcaVisualize(args, all_features, k_means_model):
     ax = plt.figure()
     # 按照聚类结果的颜色可视化
     for c, lab in zip('rgbymckw', range(args.kmeans)):
-        plt.scatter(x_pca[k_means_model.labels_==lab, 0], x_pca[k_means_model.labels_==lab, 1], c=c, label=lab)
+        plt.scatter(x_pca[k_means_model.labels_==lab, 0], x_pca[k_means_model.labels_==lab, 1], c=c, label=lab, alpha = 0.2)
     # 按照训练集和测试集可视化 for DEBUG
-    # plt.scatter(x_pca[:564,0], x_pca[:564,1], c='r', label='train', alpha = 0.25)
-    # plt.scatter(x_pca[564:,0], x_pca[564:,1], c='g', label='test', alpha = 0.25)
+    # plt.scatter(x_pca[:,0], x_pca[:,1], c='r', label='train', alpha = 0.25)
+    # plt.scatter(x_pca[:973,0], x_pca[:973,1], c='r', label='train', alpha = 0.1)
+    # plt.scatter(x_pca[973:,0], x_pca[973:,1], c='g', label='test', alpha = 0.1)
+
+    # case study
+    if (sub_dataset):
+        case_id = 3335 # case study 的frame id
+        al = np.array(sub_dataset.anchor_list)
+        for c, lab in zip('rgbymck', range(7)):
+            flag_case_id = (al[:,0] == case_id)
+            flag_anchor_lab = (al[:,3] == lab)
+            flags = [i and j for i,j in zip(flag_case_id, flag_anchor_lab)]+[False]*626
+            if (any(flags)):
+                plt.scatter(x_pca[flags, 0], x_pca[flags, 1], c=c, label=lab, alpha = 1, marker="*", s=100)
+        # for idx, i in enumerate(sub_dataset.anchor_dict[case_id]):
+            # plt.scatter(x_pca[idx,0], x_pca[idx,1])
 
     plt.xlabel('Dimension1')
     plt.ylabel('Dimension2')
     plt.title('clusters')
     plt.legend()
-    plt.savefig(os.path.join(args.result_path, 'cluster_vis.png'))
+    plt.savefig(os.path.join(args.result_path, 'cluster_vis.png'), dpi=600)
 
 def main():# 供直接运行本脚本
 
@@ -459,7 +498,7 @@ def main():# 供直接运行本脚本
     args = parse_option()
 
     # set the data loader (n_data: dataset size)
-    data_loader, n_data = get_data_loader(args, subset=args.subset)
+    data_loader, n_data, sub_dataset = get_data_loader(args, subset=args.subset)
 
     # load model
     model = set_model(args)
@@ -476,7 +515,7 @@ def main():# 供直接运行本脚本
     print("K-means cluster over!")
     
     # 计算聚类结果和锚点标注的吻合度
-    cluster_precision = evalClusterResult(args, n_data, data_loader, k_means_model)
+    # cluster_precision = evalClusterResult(args, n_data, data_loader, k_means_model)
 
     # 预测每个anchor(patch)的类别并保存可视化结果
     # print("Start predicting anchor labels...")
@@ -484,7 +523,15 @@ def main():# 供直接运行本脚本
 
     # PCA可视化类别簇
     print("Start PCA visualization...")
-    pcaVisualize(args, all_features, k_means_model)
+    # 同时可视化训练集和测试集 for DEBUG
+    vis_test = False
+    if (vis_test):
+        data_loader_test, n_data_test, _ = get_data_loader(args, subset="test_new")
+        all_features_test = calcAllFeature(args, model, data_loader_test, n_data_test, recalc_feature=True)
+        all_features = np.concatenate((all_features, all_features_test), axis=0)
+        pcaVisualize(args, all_features, k_means_model, sub_dataset)
+    else:
+        pcaVisualize(args, all_features, k_means_model)
 
     # 滑动窗预测图像上所有patch的类别并保存可视化结果
     # print("Start predicting all patch labels...")
@@ -494,9 +541,9 @@ def main():# 供直接运行本脚本
     # eval_dis_2_road(args, data_loader, model, k_means_model)
 
     # 将所有帧的可视化结果拼成video
-    if (args.pre_video):
-        print("Start predicting segmentation of video {}".format(args.pre_video))
-        predict_vidoe(args, model, k_means_model)
+    # if (args.pre_video):
+        # print("Start predicting segmentation of video {}".format(args.pre_video))
+        # predict_vidoe(args, model, k_means_model)
 
 if __name__ == '__main__':
     main()
