@@ -1,5 +1,6 @@
 src/trained_models/
 src/results/
+src/.vscode/
 src/__pycache__/
 src/NCE/__pycache__/
 src/models/__pycache__/
@@ -9,5 +10,6 @@ data/*.avi
 data/*/
 data/*.mp4
 data/train/
+data/*/
 .vscode/
 *.pyc
