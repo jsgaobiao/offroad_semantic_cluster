@@ -9,13 +9,14 @@ import cv2
 import random
 
 class OffRoadDataset(Dataset):
-    def __init__(self, root, subset='train', pos_sample_num=1, neg_sample_num=32, transform=None, channels=3, patch_size=64, background_size=192):
+    def __init__(self, root, subset='train', pos_sample_num=1, neg_sample_num=32, transform=None, channels=3, patch_size=64, background_size=192, use_data_aug_for_bg=False):
         super(OffRoadDataset, self).__init__()
         self.root = os.path.join(root, subset)
         self.neg_sample_num = neg_sample_num
         self.pos_sample_num = pos_sample_num
         self.transform = transform
         self.background_size = background_size
+        self.use_data_aug_for_bg = use_data_aug_for_bg
         self.channels = channels    # dim of input image channel (3: RGB, 5: RGBXY, 6: RGB+Background)
         self.patch_size = patch_size
         self.anchor_dict = np.load(os.path.join(self.root,"anchors_annotation.npy"), allow_pickle=True).item()
@@ -165,28 +166,33 @@ class OffRoadDataset(Dataset):
                     transforms.Resize((224,224))])
                 mean = [0.5200442, 0.5257094, 0.517397]
                 std = [0.335111, 0.33463535, 0.33491987]
-                train_transform = transforms.Compose([
-                    transforms.RandomGrayscale(p=0.2),
-                    transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.4),
-                    transforms.RandomHorizontalFlip(),
-                    transforms.RandomVerticalFlip()
-                ])
+                # 训练的时候使用前背景同时数据增强，测试的时候不做数据增强
+                if self.use_data_aug_for_bg:
+                    da_transform = transforms.Compose([
+                        transforms.RandomGrayscale(p=0.2),
+                        transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.4),
+                        transforms.RandomHorizontalFlip(),
+                        transforms.RandomVerticalFlip()
+                    ])
+                else:
+                    da_transform = transforms.Compose([])
+
                 norm_transform = transforms.Compose([transforms.Normalize(mean=mean, std=std)])
                 # [B,C,H,W]
                 fg_bg_tensor = torch.cat((resize_transform(torch.from_numpy(anchor[0,:,:,:3].astype(np.uint8).transpose(2,0,1))).view(1,3,224,224),
                                         resize_transform(torch.from_numpy(anchor_bg[0,:,:,:3].astype(np.uint8).transpose(2,0,1))).view(1,3,224,224)), 
                                         axis=0)
-                anchor_tensor[0] = norm_transform(train_transform(fg_bg_tensor).float().div(255)).reshape(self.channels,224,224)           # anchor_tensor [1, H, W, channel] 
+                anchor_tensor[0] = norm_transform(da_transform(fg_bg_tensor).float().div(255)).reshape(self.channels,224,224)           # anchor_tensor [1, H, W, channel] 
                 for i in range(pos_sample.shape[0]):
                     fg_bg_tensor = torch.cat((resize_transform(torch.from_numpy(pos_sample[i,:,:,:3].astype(np.uint8).transpose(2,0,1))).view(1,3,224,224),
                                         resize_transform(torch.from_numpy(pos_sample_bg[i,:,:,:3].astype(np.uint8).transpose(2,0,1))).view(1,3,224,224)), 
                                         axis=0)
-                    pos_sample_tensor[i][:] = norm_transform(train_transform(fg_bg_tensor).float().div(255)).reshape(self.channels,224,224)     # pos_sample_tensor [P, H, W, channel]  default: P=1
+                    pos_sample_tensor[i][:] = norm_transform(da_transform(fg_bg_tensor).float().div(255)).reshape(self.channels,224,224)     # pos_sample_tensor [P, H, W, channel]  default: P=1
                 for i in range(neg_sample.shape[0]):
                     fg_bg_tensor = torch.cat((resize_transform(torch.from_numpy(neg_sample[i,:,:,:3].astype(np.uint8).transpose(2,0,1))).view(1,3,224,224),
                                         resize_transform(torch.from_numpy(neg_sample_bg[i,:,:,:3].astype(np.uint8).transpose(2,0,1))).view(1,3,224,224)), 
                                         axis=0)
-                    neg_sample_tensor[i][:] = norm_transform(train_transform(fg_bg_tensor).float().div(255)).reshape(self.channels,224,224)     # neg_sample_tensor [K, H, W, channel] 
+                    neg_sample_tensor[i][:] = norm_transform(da_transform(fg_bg_tensor).float().div(255)).reshape(self.channels,224,224)     # neg_sample_tensor [K, H, W, channel] 
 
         anchor_type = self.anchor_list[idx][3]
         return anchor_tensor, pos_sample_tensor, neg_sample_tensor, frame_id, full_img, anchor_xy, pos_sample_xy, neg_sample_xy, anchor_type
