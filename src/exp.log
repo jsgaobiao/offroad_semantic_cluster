@@ -8,3 +8,9 @@
 1224_RGB_fine_anno_traintest2500_feat8：train和test放在一起，为了聚类可视化
 [*] 1225_RGB_fine_anno_testnew：新标注的测试集，使用train_fine_anno训练的结果
 1228_RGB_fine_anno_case_study：绘制聚类可视化图片，临时创建的
+
+# 增加data augmentation
+1231_RGB_fine_anno_data_aug: 对正负样本进行随机的数据增强 transforms.RandomGrayscale(p=0.2), transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.4)
+0102_RGB_fine_anno_data_aug_bg：【代码写错了！背景没加上去！】将patch和背景连接成6通道图片 （patch和背景的Data augmentation不一致）
+# 增加patch的背景，与前景同时做DA
+0105_RGB_fine_anno_dataAug_BG192/256/320: 测试了3种不同尺寸的背景patch用于对照

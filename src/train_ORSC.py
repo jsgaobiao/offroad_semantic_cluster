@@ -43,12 +43,14 @@ def parse_option():
     parser.add_argument('--tb_freq', type=int, default=500, help='tb frequency')
     parser.add_argument('--save_freq', type=int, default=50, help='save frequency')
     parser.add_argument('--batch_size', type=int, default=128, help='batch_size')
-    parser.add_argument('--num_workers', type=int, default=8, help='num of workers to use')
+    parser.add_argument('--num_workers', type=int, default=12, help='num of workers to use')
     parser.add_argument('--epochs', type=int, default=1000, help='number of training epochs')
+    parser.add_argument('--background', type=int, default=192, help='size of background patch')
+    parser.add_argument('--patch_size', type=int, default=64, help='size of patch')
 
     # optimization
     parser.add_argument('--learning_rate', type=float, default=0.1, help='learning rate')
-    parser.add_argument('--lr_decay_epochs', type=str, default='300,600,850', help='where to decay lr, can be a list')
+    parser.add_argument('--lr_decay_epochs', type=str, default='400,600,850', help='where to decay lr, can be a list')
     parser.add_argument('--lr_decay_rate', type=float, default=0.1, help='decay rate for learning rate')
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam')
     parser.add_argument('--beta2', type=float, default=0.999, help='beta2 for Adam')
@@ -154,7 +156,8 @@ def get_train_loader(args):
                                                 neg_sample_num=args.nce_k, 
                                                 transform=train_transform,
                                                 channels=args.in_channel, 
-                                                patch_size=64)
+                                                patch_size=args.patch_size,
+                                                background_size=args.background)
     # train loader
     # TODO: 用sampler或batch_sampler放入tensorboard可视化
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, 

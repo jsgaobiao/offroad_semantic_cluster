@@ -515,7 +515,7 @@ def main():# 供直接运行本脚本
     print("K-means cluster over!")
     
     # 计算聚类结果和锚点标注的吻合度
-    # cluster_precision = evalClusterResult(args, n_data, data_loader, k_means_model)
+    cluster_precision = evalClusterResult(args, n_data, data_loader, k_means_model)
 
     # 预测每个anchor(patch)的类别并保存可视化结果
     # print("Start predicting anchor labels...")
