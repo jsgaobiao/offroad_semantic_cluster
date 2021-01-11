@@ -34,6 +34,7 @@ def parse_option():
     parser.add_argument('--nce_m', type=float, default=0.5, help='the momentum for dynamically updating the memory.')
     parser.add_argument('--feat_dim', type=int, default=128, help='dim of feat for inner product')
     parser.add_argument('--in_channel', type=int, default=3, help='dim of input image channel (3: RGB, 5: RGBXY)')
+    parser.add_argument('--background', type=int, default=192, help='size of background patch')
 
     opt = parser.parse_args()
 
@@ -77,7 +78,8 @@ def get_data_loader(args, subset='train'):
                                                 pos_sample_num=args.nce_k, 
                                                 neg_sample_num=args.nce_k, 
                                                 transform=data_transform, 
-                                                channels=args.in_channel, 
+                                                channels=args.in_channel,
+                                                background_size=args.background, 
                                                 patch_size=64)
     # data loader
     # TODO: 用sampler或batch_sampler放入tensorboard可视化

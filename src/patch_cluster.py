@@ -10,7 +10,7 @@ from models.alexnet import MyAlexNetCMC
 from offroad_dataset import OffRoadDataset
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
-from sklearn.externals import joblib
+import joblib
 import argparse
 
 def parse_option():
@@ -21,6 +21,7 @@ def parse_option():
     parser.add_argument('--kmeans', type=int, help='kmeans聚类的类别数量')
     parser.add_argument('--pre_video',type=str, default="", help='directory of video for each frame\'s segmentation')
     parser.add_argument('--batch_pred', type=int, default=8000, help='将多个patch放到一个batch中再进行标签预测，加快计算速度')
+    parser.add_argument('--background', type=int, default=192, help='size of background patch')
     # resume path
     parser.add_argument('--model_path', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
     parser.add_argument('--result_path', type=str, default="results", help='path to save result')
@@ -77,7 +78,8 @@ def get_data_loader(args, subset='train'):
     sub_dataset = OffRoadDataset(args.data_folder, subset=subset,
                                                 pos_sample_num=args.nce_k, 
                                                 neg_sample_num=args.nce_k, 
-                                                transform=data_transform, 
+                                                transform=data_transform,
+                                                background_size=args.background, 
                                                 channels=args.in_channel, 
                                                 patch_size=64)
     # data loader
@@ -109,6 +111,7 @@ def calcAllFeature(args, model, data_loader, n_data, recalc_feature=True):
                 # inputs shape --> [batch_size, (1), channel, H, W]
                 inputs = anchor
                 inputs_shape = list(inputs.size())
+                # print('inputs_shape:{}'.format(inputs_shape))
                 # inputs shape --> [batch_size*(1), channel, H, W]
                 inputs = inputs.view((inputs_shape[0]*inputs_shape[1], inputs_shape[2], inputs_shape[3], inputs_shape[4]))
                 inputs = inputs.float()
@@ -202,6 +205,7 @@ def predict_all_patch(args, data_loader, model, k_means_model):
     tot_frame = 0
     with torch.no_grad():
         for idx, (anchor, _, _, frame_id, _full_img, _, _, _, _) in enumerate(data_loader):
+            print(idx, frame_id)
             # 来了一帧新的frame，处理上面的所有patch
             if last_frame_id != frame_id.numpy()[0]:                
                 full_img = _full_img[0,:,:,:3].numpy().astype(np.uint8)
@@ -217,6 +221,12 @@ def predict_all_patch(args, data_loader, model, k_means_model):
                         _patch = full_img[p_left_top[1]:p_right_down[1], p_left_top[0]:p_right_down[0]]
                         # 对patch进行transform后计算其特征
                         _patch = data_transform(_patch)
+                        # 如果channel==6 前背景patch
+                        if args.in_channel==6:
+                            p_left_top, p_right_down = getPatchXY(full_img, j, i, args.background)
+                            _bg_patch = full_img[p_left_top[1]:p_right_down[1], p_left_top[0]:p_right_down[0]]
+                            _bg_patch = data_transform(_bg_patch)
+                            _patch = torch.cat((_patch, _bg_patch), 0)
                         # inputs shape --> [batch_size, (1), channel, H, W]
                         inputs = _patch
                         inputs_shape = list(inputs.size())
@@ -227,7 +237,7 @@ def predict_all_patch(args, data_loader, model, k_means_model):
                             inputs = inputs.cuda()
                         # ===================forward=====================
                         _patch_feature = model(inputs)     # [batch_size*(1), feature_dim]
-                        _patch_label = k_means_model.predict(_patch_feature.cpu().numpy())
+                        _patch_label = k_means_model.predict(_patch_feature.cpu().numpy().astype(np.float))
                         # 将patch分类得到的类别标签绘制到图像上（只绘制i,j为中心，pred_res*pred_res的方块）
                         _patch_mask = cv2.rectangle(_patch_mask, (j-pred_res,i-pred_res), (j+pred_res,i+pred_res), anchor_color[_patch_label[0]], thickness=-1) #thickness=-1 表示矩形框内颜色填充
 
@@ -281,8 +291,15 @@ def predict_vidoe(args, model, k_means_model):
                     p_left_top, p_right_down = getPatchXY(full_img, j, i, patch_size)
                     # 滑动窗得到的小patch
                     _patch = full_img[p_left_top[1]:p_right_down[1], p_left_top[0]:p_right_down[0]]
+                    _patch = data_transform(_patch)
+                    # 如果channel==6 前背景patch
+                    if args.in_channel==6:
+                        p_left_top, p_right_down = getPatchXY(full_img, j, i, args.background)
+                        _bg_patch = full_img[p_left_top[1]:p_right_down[1], p_left_top[0]:p_right_down[0]]
+                        _bg_patch = data_transform(_bg_patch)
+                        _patch = torch.cat((_patch, _bg_patch), 0)
                     # 对patch进行transform
-                    _patch_batch.append(data_transform(_patch).cpu().numpy())
+                    _patch_batch.append(_patch.cpu().numpy())
                     i_batch.append(i)
                     j_batch.append(j)
                     batch_cnt += 1
@@ -304,7 +321,7 @@ def predict_vidoe(args, model, k_means_model):
                         time1 = time.time()
                         # 逐个预测类别并可视化
                         for _patch_feature, _i, _j in zip(_patch_feature_batch, i_batch, j_batch):
-                            _patch_label = k_means_model.predict(np.expand_dims(_patch_feature.cpu().numpy(), axis=0))
+                            _patch_label = k_means_model.predict(np.expand_dims(_patch_feature.cpu().numpy().astype(np.float), axis=0))
                             # 将patch分类得到的类别标签绘制到图像上（只绘制i,j为中心，pred_res*pred_res的方块）
                             _patch_mask = cv2.rectangle(_patch_mask, (_j-pred_res,_i-pred_res), (_j+pred_res,_i+pred_res), anchor_color[_patch_label[0]], thickness=-1) #thickness=-1 表示矩形框内颜色填充
                         # 清空上一个batch
@@ -358,6 +375,12 @@ def eval_dis_2_road(args, data_loader, model, k_means_model):
             road_patch = full_img[int(video_size[1]-64):int(video_size[1]), int(video_size[0]//2-32):int(video_size[0]//2+32)]
             # 对patch进行transform后计算其特征
             road_patch = data_transform(road_patch)
+            # 如果channel==6 前背景patch
+            if args.in_channel==6:
+                p_left_top, p_right_down = getPatchXY(full_img, int(video_size[1]-32), int(video_size[0]//2), args.background)
+                _bg_patch = full_img[p_left_top[1]:p_right_down[1], p_left_top[0]:p_right_down[0]]
+                _bg_patch = data_transform(_bg_patch)
+                road_patch = torch.cat((road_patch, _bg_patch), 0)
             # inputs shape --> [batch_size, (1), channel, H, W]
             inputs = road_patch
             inputs_shape = list(inputs.size())
@@ -379,6 +402,12 @@ def eval_dis_2_road(args, data_loader, model, k_means_model):
                     _patch = full_img[p_left_top[1]:p_right_down[1], p_left_top[0]:p_right_down[0]]
                     # 对patch进行transform后计算其特征
                     _patch = data_transform(_patch)
+                    # 如果channel==6 前背景patch
+                    if args.in_channel==6:
+                        p_left_top, p_right_down = getPatchXY(full_img, j, i, args.background)
+                        _bg_patch = full_img[p_left_top[1]:p_right_down[1], p_left_top[0]:p_right_down[0]]
+                        _bg_patch = data_transform(_bg_patch)
+                        _patch = torch.cat((road_patch, _bg_patch), 0)
                     # inputs shape --> [batch_size, (1), channel, H, W]
                     inputs = _patch
                     inputs_shape = list(inputs.size())
@@ -490,7 +519,7 @@ def pcaVisualize(args, all_features, k_means_model, sub_dataset=None):
     plt.ylabel('Dimension2')
     plt.title('clusters')
     plt.legend()
-    plt.savefig(os.path.join(args.result_path, 'cluster_vis.png'), dpi=600)
+    plt.savefig(os.path.join(args.result_path, 'cluster_vis{}.png'.format(args.kmeans)), dpi=600)
 
 def main():# 供直接运行本脚本
 
@@ -507,19 +536,19 @@ def main():# 供直接运行本脚本
     all_features = calcAllFeature(args, model, data_loader, n_data)
 
     # K-means聚类
-    if (os.path.isfile(os.path.join(args.result_path, "kmeans.pkl"))):
-        k_means_model = joblib.load(os.path.join(args.result_path, "kmeans.pkl"))
+    if (os.path.isfile(os.path.join(args.result_path, "kmeans{}.pkl".format(args.kmeans)))):
+        k_means_model = joblib.load(os.path.join(args.result_path, "kmeans{}.pkl".format(args.kmeans)))
     else:
         k_means_model = KMeans(n_clusters=args.kmeans).fit(all_features)
-        joblib.dump(k_means_model, os.path.join(args.result_path, "kmeans.pkl"))
+        joblib.dump(k_means_model, os.path.join(args.result_path, "kmeans{}.pkl".format(args.kmeans)))
     print("K-means cluster over!")
     
     # 计算聚类结果和锚点标注的吻合度
     cluster_precision = evalClusterResult(args, n_data, data_loader, k_means_model)
 
     # 预测每个anchor(patch)的类别并保存可视化结果
-    # print("Start predicting anchor labels...")
-    # predict_patch(args, data_loader, k_means_model, cluster_precision)
+    print("Start predicting anchor labels...")
+    predict_patch(args, data_loader, k_means_model, cluster_precision)
 
     # PCA可视化类别簇
     print("Start PCA visualization...")
@@ -533,7 +562,7 @@ def main():# 供直接运行本脚本
     else:
         pcaVisualize(args, all_features, k_means_model)
 
-    # 滑动窗预测图像上所有patch的类别并保存可视化结果
+    # [只处理有标注锚点的帧]滑动窗预测图像上所有patch的类别并保存可视化结果
     # print("Start predicting all patch labels...")
     # predict_all_patch(args, data_loader, model, k_means_model)
 

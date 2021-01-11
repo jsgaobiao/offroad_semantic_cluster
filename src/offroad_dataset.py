@@ -6,6 +6,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import cv2
+import time
 import random
 
 class OffRoadDataset(Dataset):
@@ -79,7 +80,7 @@ class OffRoadDataset(Dataset):
             if get_background:
                 _bg_list.append(self.__getPatch__(_img, _x+delta_x, _y+delta_y, get_bg=True))
             else:
-                _bg_list.append(np.zeros(self.background_size, self.background_size, self.channels))
+                _bg_list.append(np.zeros((self.background_size, self.background_size, self.channels)))
         # self.drawAnchors(_img, [_dat])
         # cv2.imshow("patch", _patch_list[0])
         # cv2.waitKey(0)
@@ -89,6 +90,7 @@ class OffRoadDataset(Dataset):
         ''' 返回一个锚点，若干正样本（默认1个），若干负样本 
         :return: anchor, pos_sample, neg_sample
         '''
+        time0 = time.time()
         frame_id = self.anchor_list[idx][0]  # anchor_list[i]: [frame_id, anchor_x, anchor_y, anchor_type]
         img_file = os.path.join(self.root, str(frame_id)+'.png')
         full_img = cv2.imread(img_file)
@@ -117,6 +119,8 @@ class OffRoadDataset(Dataset):
             # 正样本： 在patch[_id]范围内随机选取新的中心点，作为正样本patch中心
             pos_sample[i], pos_sample_xy[i], pos_sample_bg[i] = self.__getSample__(full_img, pos_sample_list[pos_id], rand_sample=True, get_background=is_get_bg)
 
+        time1 = time.time()
+
         # 挑选anchor_type不同的作为负样本 # neg_sample_list[i]: [x, y, anchor_type]
         neg_sample_list = [_dat for _dat in self.anchor_dict[frame_id] if _dat[2] != self.anchor_list[idx][3]]
         # 在负样本集合中随机选取self.neg_sample_num个负样本id
@@ -132,6 +136,7 @@ class OffRoadDataset(Dataset):
         pos_sample_tensor = torch.zeros(pos_sample.shape[0], self.channels, 224, 224)
         neg_sample_tensor = torch.zeros(neg_sample.shape[0], self.channels, 224, 224)
 
+        time2 = time.time()
         #################数据增强###############
         # 对RGB通道的transform
         # transform will change shape [num, H, W, channel] --> [num, channel, H, W]
@@ -183,17 +188,22 @@ class OffRoadDataset(Dataset):
                                         resize_transform(torch.from_numpy(anchor_bg[0,:,:,:3].astype(np.uint8).transpose(2,0,1))).view(1,3,224,224)), 
                                         axis=0)
                 anchor_tensor[0] = norm_transform(da_transform(fg_bg_tensor).float().div(255)).reshape(self.channels,224,224)           # anchor_tensor [1, H, W, channel] 
+                
                 for i in range(pos_sample.shape[0]):
                     fg_bg_tensor = torch.cat((resize_transform(torch.from_numpy(pos_sample[i,:,:,:3].astype(np.uint8).transpose(2,0,1))).view(1,3,224,224),
                                         resize_transform(torch.from_numpy(pos_sample_bg[i,:,:,:3].astype(np.uint8).transpose(2,0,1))).view(1,3,224,224)), 
                                         axis=0)
                     pos_sample_tensor[i][:] = norm_transform(da_transform(fg_bg_tensor).float().div(255)).reshape(self.channels,224,224)     # pos_sample_tensor [P, H, W, channel]  default: P=1
+                
                 for i in range(neg_sample.shape[0]):
                     fg_bg_tensor = torch.cat((resize_transform(torch.from_numpy(neg_sample[i,:,:,:3].astype(np.uint8).transpose(2,0,1))).view(1,3,224,224),
                                         resize_transform(torch.from_numpy(neg_sample_bg[i,:,:,:3].astype(np.uint8).transpose(2,0,1))).view(1,3,224,224)), 
                                         axis=0)
                     neg_sample_tensor[i][:] = norm_transform(da_transform(fg_bg_tensor).float().div(255)).reshape(self.channels,224,224)     # neg_sample_tensor [K, H, W, channel] 
+                
+                time3 = time.time()
 
+        # print("get_item time cost: {} / {} / {}".format(time1-time0, time2-time1, time3-time2))
         anchor_type = self.anchor_list[idx][3]
         return anchor_tensor, pos_sample_tensor, neg_sample_tensor, frame_id, full_img, anchor_xy, pos_sample_xy, neg_sample_xy, anchor_type
 
