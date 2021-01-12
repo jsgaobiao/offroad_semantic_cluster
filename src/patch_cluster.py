@@ -305,8 +305,8 @@ def predict_vidoe(args, model, k_means_model):
                     batch_cnt += 1
                     # 如果凑够了args.batch_pred个patch，则一起计算特征
                     if (batch_cnt % args.batch_pred == 0) or (i+pred_res >= full_img.shape[0]-pred_res//2 and j+pred_res >= full_img.shape[1]-pred_res//2):
-                        if (i+pred_res >= full_img.shape[0]-pred_res//2 and j+pred_res >= full_img.shape[1]-pred_res//2):
-                            print('last batch:{}'.format(batch_cnt))
+                        # if (i+pred_res >= full_img.shape[0]-pred_res//2 and j+pred_res >= full_img.shape[1]-pred_res//2):
+                            # print('last batch:{}'.format(batch_cnt))
                         time0 = time.time()
                         # inputs shape --> [batch_size, (1), channel, H, W]
                         inputs = torch.Tensor(_patch_batch)
@@ -570,9 +570,9 @@ def main():# 供直接运行本脚本
     # eval_dis_2_road(args, data_loader, model, k_means_model)
 
     # 将所有帧的可视化结果拼成video
-    # if (args.pre_video):
-        # print("Start predicting segmentation of video {}".format(args.pre_video))
-        # predict_vidoe(args, model, k_means_model)
+    if (args.pre_video):
+        print("Start predicting segmentation of video {}".format(args.pre_video))
+        predict_vidoe(args, model, k_means_model)
 
 if __name__ == '__main__':
     main()
