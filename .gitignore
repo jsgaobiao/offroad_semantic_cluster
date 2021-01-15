@@ -8,6 +8,7 @@ src/tensorboards/
 src/imagenet100.txt
 data/*.avi
 data/*/
+data/*.mp4
 data/train/
 data/*/
 .vscode/
