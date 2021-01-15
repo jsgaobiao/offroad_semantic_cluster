@@ -178,7 +178,7 @@ def main():
         train_transform = transforms.Compose([
             transforms.RandomResizedCrop(image_size, scale=(args.crop, 1.)),
             transforms.RandomGrayscale(p=0.2),
-            transforms.ColorJitter(0.4, 0.4, 0.4, 0.4),
+            transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.4),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             normalize,
