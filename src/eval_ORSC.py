@@ -1,3 +1,11 @@
+'''
+Author: Gao Biao
+Date: 2020-12-03 10:46:40
+LastEditTime: 2021-01-12 11:20:33
+Description: 计算正负样本平均距离
+FilePath: /offroad_semantic_cluster/src/eval_ORSC.py
+'''
+
 import os
 import sys
 import time

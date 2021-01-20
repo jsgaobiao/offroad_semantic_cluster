@@ -1,3 +1,11 @@
+'''
+Author: Gao Biao
+Date: 2020-12-08 14:45:45
+LastEditTime: 2021-01-16 22:11:46
+Description: 根据对比学习学到的特征距离进行K-means聚类，并且根据K-means结果预测patch的语义类别，绘制到图像上
+FilePath: /offroad_semantic_cluster/src/patch_cluster.py
+'''
+
 from sklearn.cluster import KMeans
 import numpy as np
 import torch
@@ -276,10 +284,12 @@ def predict_vidoe(args, model, k_means_model):
         ################  读入视频帧  #################
         while True:
             ret, full_img = cap.read() # 读入一帧图像
-            frame_id = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
             if not ret: # 读完整段视频，退出
                 print('Video end!')
                 break
+            frame_id = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+            if (frame_id % 5 != 1):
+                continue
             _patch_mask = np.zeros((full_img.shape), dtype=np.uint8)
             batch_cnt = 0   # 将args.batch_pred个patch放入一个batch中再计算特征
             _patch_batch = []
@@ -333,7 +343,8 @@ def predict_vidoe(args, model, k_means_model):
                         print("time cost: {:.3f} / {:.3f}".format(time1-time0, time2-time1))
             # alpha 为第一张图片的透明度，beta 为第二张图片的透明度 cv2.addWeighted 将原始图片与 mask 融合
             full_img = cv2.addWeighted(full_img, 1, _patch_mask, 0.2, 0)
-            cv2.imwrite(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.png"), full_img)        
+            cv2.imwrite(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.png"), full_img)      
+            cv2.imwrite(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.mask.png"), _patch_mask)        
             # print info
             print('Save video fine segmentation: [{0}] {1}'.format(frame_id, os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.png")))
 
@@ -548,7 +559,7 @@ def main():# 供直接运行本脚本
 
     # 预测每个anchor(patch)的类别并保存可视化结果
     print("Start predicting anchor labels...")
-    predict_patch(args, data_loader, k_means_model, cluster_precision)
+    # predict_patch(args, data_loader, k_means_model, cluster_precision)
 
     # PCA可视化类别簇
     print("Start PCA visualization...")
@@ -570,9 +581,9 @@ def main():# 供直接运行本脚本
     # eval_dis_2_road(args, data_loader, model, k_means_model)
 
     # 将所有帧的可视化结果拼成video
-    if (args.pre_video):
-        print("Start predicting segmentation of video {}".format(args.pre_video))
-        predict_vidoe(args, model, k_means_model)
+    # if (args.pre_video):
+    #     print("Start predicting segmentation of video {}".format(args.pre_video))
+    #     predict_vidoe(args, model, k_means_model)
 
 if __name__ == '__main__':
     main()
