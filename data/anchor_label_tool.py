@@ -3,12 +3,12 @@ import cv2
 import numpy as np
 import os
 
-RAW_DATA_FILE='0.avi'
+RAW_DATA_FILE='1_cut.mp4'
 OUTPUT_DIR='anchor_annotation'
 
 flag_playing_video = False # 是否自动播放视频
 flag_next_frame = True  # 播放下一帧视频
-resize_ratio = 2.0
+resize_ratio = 1.5
 waitkey_time = 0
 anchor_dict = {}
 anchor_type = 0
@@ -17,7 +17,7 @@ anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,
 
 # 保存已标注的结果
 def save_anchor_to_file():
-    np.save(os.path.join(OUTPUT_DIR, RAW_DATA_FILE+"_anchors_annotation.npy"), anchor_dict)
+    np.save(os.path.join(OUTPUT_DIR, "anchors_annotation.npy"), anchor_dict)
 
 # 保存已标注的锚点对应的图像
 def save_anchor_img_to_file():
@@ -113,6 +113,7 @@ while (cap.isOpened()):
     
     if input_key & 0xFF == ord('q'):  # 按q键退出，并保存所有图片
         save_anchor_img_to_file()
+        save_anchor_to_file()
         break
     if input_key & 0xFF == 32:  # 按空格播放/暂停
         flag_playing_video = not flag_playing_video
@@ -154,6 +155,16 @@ while (cap.isOpened()):
                 break
         if _new_frame_id != frame_id:
             onChange(_new_frame_id-1)
+    if input_key & 0xFF == ord('c'):   # 遍历存储的图片，清除没有锚点标注的图片和dict
+        del_list = []
+        for _anch in anchor_dict.keys():
+            _img_file = os.path.join(OUTPUT_DIR, str(_anch)+'.png')
+            if not os.path.isfile(_img_file):
+                del_list.append(_anch)
+        for _anch in del_list:
+            del anchor_dict[_anch]
+            print("del frame:{}".format(_anch))
+        save_anchor_to_file()
 
 # when everything done , release the capture
 cap.release()
