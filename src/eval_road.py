@@ -13,8 +13,8 @@ import multiprocessing
 
 read_skip = 5   # 每隔若干帧取一张图片进行评估
 kmeans = 6      # 类别数量
-cap = cv2.VideoCapture("/home/gaobiao/Documents/offroad_semantic_cluster/data/0.avi")  # 读取待标注数据
-video_pred_dir = "/home/gaobiao/Documents/offroad_semantic_cluster/src/results/0107_RGB_fine_anno_dataAug_BG320_trainset/video_pred"
+cap = cv2.VideoCapture("/home/gaobiao/Documents/offroad_semantic_cluster/data/1_cut.mp4")  # 读取待标注数据
+video_pred_dir = "/home/gaobiao/Documents/offroad_semantic_cluster/src/results/0107_RGB_fine_anno_dataAug_BG320_test1_kmeans6/video_pred"
 fps=cap.get(cv2.CAP_PROP_FPS)
 tot_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 all_pixel_bgr_mean = np.zeros((kmeans, 3))  # 每一类rgb均值
@@ -59,7 +59,7 @@ cap.release()
 all_pixel_bgr_mean = all_pixel_bgr_mean / all_pixel_bgr_num
 
 ################  读入视频帧 (再计算方差) #################
-cap = cv2.VideoCapture("/home/gaobiao/Documents/offroad_semantic_cluster/data/0.avi")  # 读取待标注数据
+cap = cv2.VideoCapture("/home/gaobiao/Documents/offroad_semantic_cluster/data/1_cut.mp4")  # 读取待标注数据
 while True:
     ret, full_img = cap.read() # 读入一帧图像
     if not ret: # 读完整段视频，退出
@@ -86,7 +86,7 @@ cap.release()
 # 计算均值
 all_pixel_bgr_std = all_pixel_bgr_std / all_pixel_bgr_num
 #################  统计每类像素BGR值的均值方差 ###################
-f_out = open("all_pixel_bgr_stats_BG320_train.csv", "w")
+f_out = open("all_pixel_bgr_stats_BG320_train_to_test1.csv", "w")
 for i in range(kmeans):
     f_out.write(str(list(all_pixel_bgr_mean[i]))[1:-1]+',')
     f_out.write(str(list(all_pixel_bgr_std[i]))[1:-1]+',')

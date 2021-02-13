@@ -42,7 +42,7 @@ def parse_option():
     parser.add_argument('--nce_m', type=float, default=0.5, help='the momentum for dynamically updating the memory.')
     parser.add_argument('--feat_dim', type=int, default=128, help='dim of feat for inner product')
     parser.add_argument('--in_channel', type=int, default=3, help='dim of input image channel (3: RGB, 5: RGBXY)')
-    parser.add_argument('--background', type=int, default=192, help='size of background patch')
+    parser.add_argument('--background', type=int, default=320, help='size of background patch')
 
     opt = parser.parse_args()
 
@@ -88,11 +88,12 @@ def get_data_loader(args, subset='train'):
                                                 transform=data_transform, 
                                                 channels=args.in_channel,
                                                 background_size=args.background, 
-                                                patch_size=64)
+                                                patch_size=64,
+                                                rand_sample=False)
     # data loader
     # TODO: 用sampler或batch_sampler放入tensorboard可视化
     data_loader = torch.utils.data.DataLoader(sub_dataset, batch_size=args.batch_size, 
-                                                            shuffle=False,
+                                                            shuffle=True,
                                                             num_workers=args.num_workers, 
                                                             pin_memory=True, 
                                                             sampler=None)
@@ -126,27 +127,35 @@ def caseStudy(args, _full_img, _anchor_xy, _pos_sample_xy, _neg_sample_xy, _pos_
             if (p_right_down[1] == h): p_left_top[1] = p_right_down[1] - anchor_width
         return p_left_top, p_right_down
     def getColor(_v, color_map):
-        # _v的值在[e^(-1), e]之间， 归一化到0-255
-        _dv = int(max(min((_v - math.exp(-1)) / (math.exp(1) - math.exp(-1)) * 255, 255), 0))
+        # _v的值在[e^(-1), e]之间， 归一化到10-205
+        _dv = int(max(min((_v - math.exp(-1)) / (math.exp(1) - math.exp(-1)) * 205 + 10, 205), 10))
         return [int(color_map[_dv][0][0]), int(color_map[_dv][0][1]), int(color_map[_dv][0][2])]
     # 绘制anchor
     for _p in anchor_xy:
         p_left_top, p_right_down = getPatchXY(full_img, _p[0], _p[1], anchor_width)
-        cv2.rectangle(full_img, tuple(p_left_top), tuple(p_right_down), anchor_color[0], thickness=4)
-        cv2.putText(full_img, "anchor", tuple(p_right_down), cv2.FONT_HERSHEY_SIMPLEX, 1, anchor_color[0], 2)
+        cv2.rectangle(full_img, tuple(p_left_top), tuple(p_right_down), anchor_color[0], thickness=5)
+        cv2.putText(full_img, "A", tuple(p_right_down), cv2.FONT_HERSHEY_SIMPLEX, 3, anchor_color[0], 3)
+        anchor_left_top = p_left_top[:]
+        anchor_right_down = p_right_down[:]
     # 绘制正样本
     for (_p, _feat) in zip(pos_sample_xy, pos_feat_dis):
         p_left_top, p_right_down = getPatchXY(full_img, _p[0], _p[1], anchor_width)
+        if p_left_top==anchor_left_top and p_right_down==anchor_right_down:
+            continue
         pos_color = tuple(getColor(_feat[0], color_map))
         cv2.rectangle(full_img, tuple(p_left_top), tuple(p_right_down), pos_color, thickness=4)
-        cv2.putText(full_img, "P({:.2f})".format(_feat[0]), tuple(p_right_down), cv2.FONT_HERSHEY_SIMPLEX, 1, pos_color, 2)
+        cv2.putText(full_img, "P({:.2f})".format(_feat[0]), tuple(p_right_down), cv2.FONT_HERSHEY_SIMPLEX, 2, pos_color, 3)
+        # cv2.putText(full_img, "P", tuple(p_right_down), cv2.FONT_HERSHEY_SIMPLEX, 3, pos_color, 3)
     # 绘制负样本
     for (_p, _feat) in zip(neg_sample_xy, neg_feat_dis):
         p_left_top, p_right_down = getPatchXY(full_img, _p[0], _p[1], anchor_width)
         neg_color = tuple(getColor(_feat[0], color_map))
         cv2.rectangle(full_img, tuple(p_left_top), tuple(p_right_down), neg_color, thickness=4)
-        cv2.putText(full_img, "N({:.2f})".format(_feat[0]), tuple(p_right_down), cv2.FONT_HERSHEY_SIMPLEX, 1, neg_color, 2)
+        cv2.putText(full_img, "N({:.2f})".format(_feat[0]), tuple(p_right_down), cv2.FONT_HERSHEY_SIMPLEX, 2, neg_color, 3)
+        # cv2.putText(full_img, "N", tuple(p_right_down), cv2.FONT_HERSHEY_SIMPLEX, 3, neg_color, 3)
     
+    cv2.rectangle(full_img, tuple(anchor_left_top), tuple(anchor_right_down), anchor_color[0], thickness=5)
+    cv2.putText(full_img, "A", tuple(anchor_right_down), cv2.FONT_HERSHEY_SIMPLEX, 3, anchor_color[0], 3)
     return full_img
 
 def calcAverageDis(args, model, data_loader):

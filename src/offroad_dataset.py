@@ -10,12 +10,13 @@ import time
 import random
 
 class OffRoadDataset(Dataset):
-    def __init__(self, root, subset='train', pos_sample_num=1, neg_sample_num=32, transform=None, channels=3, patch_size=64, background_size=192, use_data_aug_for_bg=False):
+    def __init__(self, root, subset='train', pos_sample_num=1, neg_sample_num=32, transform=None, channels=3, patch_size=64, background_size=192, use_data_aug_for_bg=False, rand_sample=True):
         super(OffRoadDataset, self).__init__()
         self.root = os.path.join(root, subset)
         self.neg_sample_num = neg_sample_num
         self.pos_sample_num = pos_sample_num
         self.transform = transform
+        self.rand_sample = rand_sample
         self.background_size = background_size
         self.use_data_aug_for_bg = use_data_aug_for_bg
         self.channels = channels    # dim of input image channel (3: RGB, 5: RGBXY, 6: RGB+Background)
@@ -117,7 +118,7 @@ class OffRoadDataset(Dataset):
         pos_sample_bg = np.zeros((self.pos_sample_num, self.background_size, self.background_size, self.channels), dtype=np.uint8)
         for i, pos_id in enumerate(pos_sample_id_list):
             # 正样本： 在patch[_id]范围内随机选取新的中心点，作为正样本patch中心
-            pos_sample[i], pos_sample_xy[i], pos_sample_bg[i] = self.__getSample__(full_img, pos_sample_list[pos_id], rand_sample=True, get_background=is_get_bg)
+            pos_sample[i], pos_sample_xy[i], pos_sample_bg[i] = self.__getSample__(full_img, pos_sample_list[pos_id], rand_sample=self.rand_sample, get_background=is_get_bg)
 
         time1 = time.time()
 
@@ -130,7 +131,7 @@ class OffRoadDataset(Dataset):
         neg_sample_bg = np.zeros((self.neg_sample_num, self.background_size, self.background_size, self.channels), dtype=np.uint8)
         for i, neg_id in enumerate(neg_sample_id_list):
             # 负样本： 在patch[_id]范围内随机选取新的中心点，作为负样本patch中心
-            neg_sample[i], neg_sample_xy[i], neg_sample_bg[i] = self.__getSample__(full_img, neg_sample_list[neg_id], rand_sample=True, get_background=is_get_bg)
+            neg_sample[i], neg_sample_xy[i], neg_sample_bg[i] = self.__getSample__(full_img, neg_sample_list[neg_id], rand_sample=self.rand_sample, get_background=is_get_bg)
 
         anchor_tensor = torch.zeros(1, self.channels, 224, 224)
         pos_sample_tensor = torch.zeros(pos_sample.shape[0], self.channels, 224, 224)
