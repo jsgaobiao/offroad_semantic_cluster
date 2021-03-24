@@ -13,3 +13,4 @@ data/train/
 data/*/
 .vscode/
 *.pyc
+*.csv
