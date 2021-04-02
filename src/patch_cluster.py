@@ -41,7 +41,7 @@ def parse_option():
     parser.add_argument('--nce_t', type=float, default=0.07)
     parser.add_argument('--nce_m', type=float, default=0.5, help='the momentum for dynamically updating the memory.')
     parser.add_argument('--feat_dim', type=int, default=128, help='dim of feat for inner product')
-    parser.add_argument('--in_channel', type=int, default=3, help='dim of input image channel (3: RGB, 5: RGBXY)')
+    parser.add_argument('--in_channel', type=int, default=3, help='dim of input image channel (3: RGB, 5: RGBXY, 6: RGB+Background)')
 
     opt = parser.parse_args()
     # 要保存每个anchor的特征，所以batch_size必须是1
@@ -54,7 +54,17 @@ def parse_option():
         opt.result_path = os.path.join(opt.result_path, opt.note, "cluster_results")
     if not os.path.isdir(opt.result_path):
         os.makedirs(opt.result_path)
+    if not os.path.isdir(opt.result_path.replace("cluster_results", "features")):
+        os.makedirs(opt.result_path.replace("cluster_results", "features"))
     
+    # 将使用的配置表保存到文件中
+    args_to_save = parser.parse_args()
+    print(args_to_save)
+    argsDict = args_to_save.__dict__
+    with open(os.path.join(opt.result_path.replace("cluster_results", ""), 'args.txt'), 'w') as f:
+        for eachArg, value in argsDict.items():
+            f.writelines(eachArg + ' : ' + str(value) + '\n')
+
     return opt
 
 def set_model(args):
@@ -288,13 +298,14 @@ def predict_vidoe(args, model, k_means_model):
                 print('Video end!')
                 break
             frame_id = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
-            if (frame_id % 5 != 1):
+            if (frame_id % 5 == 1):
                 continue
             _patch_mask = np.zeros((full_img.shape), dtype=np.uint8)
             batch_cnt = 0   # 将args.batch_pred个patch放入一个batch中再计算特征
             _patch_batch = []
             i_batch = []
             j_batch = []
+            features_for_save = np.array([])
             # 滑动窗处理所有的patch，先不考虑天空，只滑动下半张图片
             for i in range(full_img.shape[0]//2, full_img.shape[0]-pred_res//2, pred_res):
                 for j in range(pred_res//2, full_img.shape[1]-pred_res//2, pred_res):
@@ -334,17 +345,26 @@ def predict_vidoe(args, model, k_means_model):
                             _patch_label = k_means_model.predict(np.expand_dims(_patch_feature.cpu().numpy().astype(np.float), axis=0))
                             # 将patch分类得到的类别标签绘制到图像上（只绘制i,j为中心，pred_res*pred_res的方块）
                             _patch_mask = cv2.rectangle(_patch_mask, (_j-pred_res,_i-pred_res), (_j+pred_res,_i+pred_res), anchor_color[_patch_label[0]], thickness=-1) #thickness=-1 表示矩形框内颜色填充
+                            # 将计算好的patch对应的feature保存到文件里
+                            _patch_ij_feature = np.expand_dims(np.concatenate(([_i], [_j], _patch_feature.cpu().numpy())), axis=0)
+                            if features_for_save.shape[0] == 0:
+                                features_for_save = _patch_ij_feature
+                            else:
+                                features_for_save = np.concatenate((features_for_save, _patch_ij_feature), axis=0)
                         # 清空上一个batch
                         batch_cnt = 0
                         _patch_batch = []
                         i_batch = []
                         j_batch = []
                         time2 = time.time()
-                        print("time cost: {:.3f} / {:.3f}".format(time1-time0, time2-time1))
+                        print("time cost: {:.3f} + {:.3f}".format(time1-time0, time2-time1))
             # alpha 为第一张图片的透明度，beta 为第二张图片的透明度 cv2.addWeighted 将原始图片与 mask 融合
             full_img = cv2.addWeighted(full_img, 1, _patch_mask, 0.2, 0)
             cv2.imwrite(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.png"), full_img)      
             cv2.imwrite(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.mask.png"), _patch_mask)        
+            # 将计算好的patch对应的feature保存到文件里
+            print(features_for_save.shape)
+            np.save(os.path.join(args.result_path.replace("cluster_results", "features"), str(frame_id)+".npy"), features_for_save)
             # print info
             print('Save video fine segmentation: [{0}] {1}'.format(frame_id, os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.png")))
 
@@ -581,9 +601,9 @@ def main():# 供直接运行本脚本
     # eval_dis_2_road(args, data_loader, model, k_means_model)
 
     # 将所有帧的可视化结果拼成video
-    # if (args.pre_video):
-    #     print("Start predicting segmentation of video {}".format(args.pre_video))
-    #     predict_vidoe(args, model, k_means_model)
+    if (args.pre_video):
+        print("Start predicting segmentation of video {}".format(args.pre_video))
+        predict_vidoe(args, model, k_means_model)
 
 if __name__ == '__main__':
     main()

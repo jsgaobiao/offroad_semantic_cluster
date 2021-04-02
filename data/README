@@ -1,0 +1,4 @@
+train_fine_anno: guilin dataset 0
+test1: guilin dataset 1
+test2: guilin dataset 2
+train_with_label: guilin dataset 0 （使用绝对类别标签，见label_table.md)

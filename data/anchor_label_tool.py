@@ -3,8 +3,8 @@ import cv2
 import numpy as np
 import os
 
-RAW_DATA_FILE='1_cut.mp4'
-OUTPUT_DIR='anchor_annotation'
+RAW_DATA_FILE='/media/gaobiao/D/ubuntu_share/guiline_dataset/0.avi'
+OUTPUT_DIR='train_label'
 
 flag_playing_video = False # 是否自动播放视频
 flag_next_frame = True  # 播放下一帧视频
@@ -13,7 +13,7 @@ waitkey_time = 0
 anchor_dict = {}
 anchor_type = 0
 anchor_width = 64
-anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,255,0)]
+anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,255,0), (220,220,220), (31,102,156), (80,127,255), (140,230,240), (127,255,0), (158,168,3), (255,144,30), (214,112,218)]
 
 # 保存已标注的结果
 def save_anchor_to_file():
@@ -119,6 +119,9 @@ while (cap.isOpened()):
         flag_playing_video = not flag_playing_video
     if input_key & 0xFF in range(ord('0'), ord('9')+1):
         anchor_type = int(input_key & 0xFF) - ord('0')
+        print("anchor_type: {}".format(anchor_type))
+    if input_key & 0xFF in range(ord('e'), ord('n')+1):
+        anchor_type = int(input_key & 0xFF) - ord('e') + 10
         print("anchor_type: {}".format(anchor_type))
     if input_key & 0xFF == ord('d'):    # 下一帧
         flag_next_frame = True
