@@ -21,7 +21,7 @@ import myGaussianProcess
 pred_res = 25    # 分类的分辨率：每个patch中间pred_res*pred_res的方块赋予该patch的类别标签
 anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,255,0), (220,220,220), (31,102,156), (80,127,255), (140,230,240), (127,255,0), (158,168,3), (255,144,30), (214,112,218)]
 anchor_marker = ['.','.','.','.','.','.','x','x','s','s','s','s','*','*']
-case_study_frame_id = 678
+case_study_frame_id = 200
 
 def parse_option():
     parser = argparse.ArgumentParser('argument for evaluation')
@@ -479,7 +479,7 @@ def calc_dis_to_cluster_center(args, k_means_model, anchor_feature_list):
         mdis_to_center[i] /= np.count_nonzero(k_means_model.labels_==i)
     return mdis_to_center
 
-def show_uncertainty_img(args, case_study_uncertainty):
+def show_uncertainty_img(args, case_study_frame_id, case_study_uncertainty):
     '''
         [处理指定视频帧] 将uncertainty的结果可视化到指定的视频帧上
     '''    
@@ -495,11 +495,12 @@ def show_uncertainty_img(args, case_study_uncertainty):
     cap.set(cv2.CAP_PROP_POS_FRAMES, case_study_frame_id)
     # 对uncertainty的值进行归一化到0-255
     u_min = 0 #case_study_uncertainty.min()
-    u_max = 0.5 #case_study_uncertainty.max()
+    u_max = 0.15 #case_study_uncertainty.max()
     print('Uncertainty range of frame{0}: [{1}, {2}]'.format(case_study_frame_id, case_study_uncertainty.min(), case_study_uncertainty.max()))
     fig, ax = plt.subplots()
-    ax.hist(case_study_uncertainty, bins=30, range=(0,u_max))
-    fig.savefig(os.path.join(args.result_path.replace("cluster_results", "./"), '_threshold.png'), dpi=600)
+    ax.set_ylim(0, 1e3)
+    ax.hist(case_study_uncertainty, bins=100, range=(0,0.5), log=False)
+    fig.savefig(os.path.join(args.result_path.replace("cluster_results", "case_study"), 'frame{}_threshold.png'.format(case_study_frame_id+1)), dpi=600)
 
     with torch.no_grad():
         ################  读入视频帧  #################
@@ -592,4 +593,4 @@ if __name__ == "__main__":
 
     # 将uncertainty可视化到case study的视频帧上面
     # case_study_uncertainty.shape为所有case study的patch排成一维
-    show_uncertainty_img(args, case_study_uncertainty)
+    show_uncertainty_img(args, case_study_frame_id, case_study_uncertainty)

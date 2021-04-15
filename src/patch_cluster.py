@@ -298,7 +298,10 @@ def predict_vidoe(args, model, k_means_model):
                 print('Video end!')
                 break
             frame_id = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
-            if (frame_id % 5 == 1):
+            # if (frame_id % 5 == 1):
+                # continue
+            # 如果有结果就不重复计算了
+            if os.path.isfile(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.mask.png")):
                 continue
             _patch_mask = np.zeros((full_img.shape), dtype=np.uint8)
             batch_cnt = 0   # 将args.batch_pred个patch放入一个batch中再计算特征

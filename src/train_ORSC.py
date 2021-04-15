@@ -9,6 +9,7 @@ import time
 import torch
 import torch.backends.cudnn as cudnn
 import argparse
+import random
 import socket
 import numpy as np
 
@@ -25,6 +26,7 @@ from NCE.NCECriterion import NCECriterion
 from NCE.NCECriterion import NCESoftmaxLoss
 
 from offroad_dataset import OffRoadDataset
+from offroad_dataset_extend import OffRoadDatasetExtend
 
 try:
     from apex import amp, optimizers
@@ -161,11 +163,14 @@ def get_train_loader(args):
                                                 use_data_aug_for_bg=True)
     # train loader
     # TODO: 用sampler或batch_sampler放入tensorboard可视化
+    def worker_init_fn(worker_id):
+        random.seed(0 + worker_id)
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, 
                                                             shuffle=True,
                                                             num_workers=args.num_workers, 
                                                             pin_memory=True, 
-                                                            sampler=None)
+                                                            sampler=None,
+                                                            worker_init_fn=worker_init_fn)
     # num of samples
     n_data = len(train_dataset)
     print('number of samples (all anchors): {}'.format(n_data))

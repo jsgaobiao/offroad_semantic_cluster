@@ -141,7 +141,7 @@ def visualize(args, test_x_mat, test_y_mat, pred_means, pred_var, case_study_fra
                         alpha = 0.4)
     # ax[0].legend(bbox_to_anchor=(0.5, -0.1), loc='upper center', ncol=6)
     fig.savefig(os.path.join(args.result_path, '../', 'gaussian_process_vis(var).png'), dpi=600)
-    fig.savefig(os.path.join(args.result_path.replace("cluster_results", "case_study"), 'gaussian_process_vis(var)_frame{0}.png'.format(case_study_frame_id)), dpi=600)
+    fig.savefig(os.path.join(args.result_path.replace("cluster_results", "case_study"), 'gaussian_process_vis(var)_frame{0}.png'.format(case_study_frame_id+1)), dpi=600)
 
     return case_study_uncertainty
 
