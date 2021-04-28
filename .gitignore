@@ -14,3 +14,5 @@ data/*/
 .vscode/
 *.pyc
 *.csv
+*.avi
+*.mp4

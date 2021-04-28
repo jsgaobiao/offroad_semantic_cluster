@@ -10,9 +10,10 @@ import time
 import random
 
 class OffRoadDatasetExtend(Dataset):
-    def __init__(self, root, subset='train', pos_sample_num=1, neg_sample_num=32, transform=None, channels=3, patch_size=64, background_size=192, use_data_aug_for_bg=False, rand_sample=True):
+    def __init__(self, root, subset='train', input_video="", pos_sample_num=1, neg_sample_num=32, transform=None, channels=3, patch_size=64, background_size=192, use_data_aug_for_bg=False, rand_sample=True):
         super(OffRoadDatasetExtend, self).__init__()
         self.root = os.path.join(root, subset)
+        self.input_video = input_video
         self.neg_sample_num = neg_sample_num
         self.pos_sample_num = pos_sample_num
         self.transform = transform
@@ -24,20 +25,31 @@ class OffRoadDatasetExtend(Dataset):
         # self.anchor_dict = np.load(os.path.join(self.root,"anchors_annotation.npy"), allow_pickle=True).item()
         # 读取扩展的锚点数据
         self.anchor_dict = {}
+        self.anchor_dict = np.load(os.path.join(self.root,"anchors_annotation.npy"), allow_pickle=True).item()
+        for i in self.anchor_dict.keys():
+            for j in range(len(self.anchor_dict[i])):
+                self.anchor_dict[i][j] = [i] + self.anchor_dict[i][j]
         with open(os.path.join(self.root,"extend_anchors.txt")) as f:
-            _n = f.readline()
+            _n = int(f.readline())
             for i in range(_n):
-                origin_frm_ID, anchor_cnt = map(int, f.readline().split())
-                _data = map(int, f.readline().split())
-                self.anchor_dict[origin_frm_ID] = [[_data[0], _data[1], _data[2], _data[3]]]
-                for j in range(1, anchor_cnt):
-                    self.anchor_dict[origin_frm_ID].append([_data[j*4], _data[j*4+1], _data[j*4+2], _data[j*4+3]])
+                origin_frm_ID, anchor_cnt = list(map(int, f.readline().strip().split()))
+                _data = list(map(int, f.readline().strip().split()))
+                for j in range(anchor_cnt):
+                    if origin_frm_ID in self.anchor_dict.keys():
+                        self.anchor_dict[origin_frm_ID].append([_data[j*4], _data[j*4+1], _data[j*4+2], _data[j*4+3]])
+                    else:
+                        self.anchor_dict[origin_frm_ID] = [[_data[0], _data[1], _data[2], _data[3]]]
         self.anchor_list = []
         for _f_id in sorted(self.anchor_dict.keys()):
-            for _ac_id in range(len(self.anchor_dict[_f_id])):
-                # [origin_frame_id, cur_frame_id, anchor_x, anchor_y, anchor_type]
-                # origin_frame_id是人工标注锚点的帧, (anchor_x, anchor_y) 是在当前帧cur_frame_id中看到的锚点坐标
-                self.anchor_list.append([_f_id] + self.anchor_dict[_f_id][_ac_id])
+            # 检查一下，如果锚点种类少于2（没法找到正负样本对），就不要了
+            _anchors = np.array(self.anchor_dict[_f_id])
+            if (_anchors[:,3].min() != _anchors[:,3].max()):
+                for _ac_id in range(len(self.anchor_dict[_f_id])):
+                    # [origin_frame_id, cur_frame_id, anchor_x, anchor_y, anchor_type]
+                    # origin_frame_id是人工标注锚点的帧, (anchor_x, anchor_y) 是在当前帧cur_frame_id中看到的锚点坐标
+                    self.anchor_list.append([_f_id] + self.anchor_dict[_f_id][_ac_id])
+            else:
+                print("Useless anchors origin frame:{}".format(_f_id))
             
 
     def __len__(self):
@@ -99,14 +111,26 @@ class OffRoadDatasetExtend(Dataset):
         # cv2.waitKey(0)
         return np.array(_patch_list), np.array(_patch_pos_list), np.array(_bg_list)
 
-    def __getitem__(self, idx):
-        ''' 返回一个锚点，若干正样本（默认1个），若干负样本 
-        :return: anchor, pos_sample, neg_sample
-        '''
-        time0 = time.time()
-        origin_frame_id = self.anchor_list[idx][0]  # anchor_list[i]: [origin_frame_id, cur_frame_id, anchor_x, anchor_y, anchor_type]
-        cur_frame_id = self.anchor_list[idx][1]
-        img_file = os.path.join(self.root, str(cur_frame_id)+'.png')
+    def __get_image_from_video__(self, frm_id):
+        cap = cv2.VideoCapture(self.input_video)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frm_id)
+        err, full_img = cap.read()
+        cap.release()
+        # 如果channel参数为5，则通道为RGBXY, 其中x,y通道值域[0,1]
+        if (self.channels == 5):
+            xy_img = np.zeros((full_img.shape[0], full_img.shape[1], 2), dtype=np.float32)
+            xy_img[:,:,0] = np.tile(np.expand_dims(np.arange(0, 1, 1/float(full_img.shape[0])).astype(np.float32), axis=1), (1,full_img.shape[1])) # 将x坐标归一化到0-255
+            xy_img[:,:,1] = np.tile(np.arange(0, 1, 1/float(full_img.shape[1])).astype(np.float32), (full_img.shape[0], 1)) # 将x坐标归一化到0-255
+            full_img = np.concatenate((full_img, xy_img), 2)
+        # 如果channel参数为6，则单独提取背景patch作为额外的3个通道
+        is_get_bg = False
+        if (self.channels == 6):
+            is_get_bg = True
+            full_img = np.concatenate((full_img, full_img), axis=2)
+        return full_img, is_get_bg
+    
+    def __get_image_from_file__(self, frm_id):
+        img_file = os.path.join(self.root, str(frm_id)+'.png')
         full_img = cv2.imread(img_file)
         # 如果channel参数为5，则通道为RGBXY, 其中x,y通道值域[0,1]
         if (self.channels == 5):
@@ -119,10 +143,31 @@ class OffRoadDatasetExtend(Dataset):
         if (self.channels == 6):
             is_get_bg = True
             full_img = np.concatenate((full_img, full_img), axis=2)
+        return full_img, is_get_bg
+
+    def __getitem__(self, idx):
+        ''' 返回一个锚点，若干正样本（默认1个），若干负样本 
+        :return: anchor, pos_sample, neg_sample
+        '''
+        time0 = time.time()
+        origin_frame_id = self.anchor_list[idx][0]  # anchor_list[i]: [origin_frame_id, cur_frame_id, anchor_x, anchor_y, anchor_type]
+        cur_frame_id = self.anchor_list[idx][1]
+        # img_file = os.path.join(self.root, str(cur_frame_id)+'.png')
+        # 如果给定了输入video就从视频中读入
+        # if self.input_video == "":
+        #     full_img = cv2.imread(img_file)
+        # else:
+        #     cap = cv2.VideoCapture(self.input_video)
+        #     cap.set(cv2.CAP_PROP_POS_FRAMES, cur_frame_id-1)
+        #     err, full_img = cap.read()
+        #     cap.release()
+        
+        full_img, is_get_bg = self.__get_image_from_file__(cur_frame_id)
         anchor, anchor_xy, anchor_bg = self.__getSample__(full_img, self.anchor_list[idx][2:], rand_sample=False, get_background=is_get_bg)
 
         # 挑选出anchor_type一样的作为正样本
-        # pos_sample_list[i]: [x, y, anchor_type] # anchor_list[i]: [frame_id, anchor_x, anchor_y, anchor_type]
+        # pos_sample_list[i]: [cur_frame_id, x, y, anchor_type]
+        # anchor_list[i]: [origin_frame_id, cur_frame_id, anchor_x, anchor_y, anchor_type]
         pos_sample_list = [_dat for _dat in self.anchor_dict[origin_frame_id] if _dat[3] == self.anchor_list[idx][4]]        
         # 在正样本集合中随机选取self.pos_sample_num（默认1）个正样本id
         pos_sample_id_list = [random.randint(0, len(pos_sample_list)-1) for i in range(self.pos_sample_num)]
@@ -130,12 +175,14 @@ class OffRoadDatasetExtend(Dataset):
         pos_sample_xy = np.zeros((self.pos_sample_num, 2), dtype=np.int32)   # positive sample position
         pos_sample_bg = np.zeros((self.pos_sample_num, self.background_size, self.background_size, self.channels), dtype=np.uint8)
         for i, pos_id in enumerate(pos_sample_id_list):
+            # 读取锚点所在frame对应的图像
+            full_img, is_get_bg = self.__get_image_from_file__(pos_sample_list[pos_id][0])
             # 正样本： 在patch[_id]范围内随机选取新的中心点，作为正样本patch中心
-            pos_sample[i], pos_sample_xy[i], pos_sample_bg[i] = self.__getSample__(full_img, pos_sample_list[pos_id], rand_sample=self.rand_sample, get_background=is_get_bg)
+            pos_sample[i], pos_sample_xy[i], pos_sample_bg[i] = self.__getSample__(full_img, pos_sample_list[pos_id][1:], rand_sample=self.rand_sample, get_background=is_get_bg)
 
         time1 = time.time()
 
-        # 挑选anchor_type不同的作为负样本 # neg_sample_list[i]: [x, y, anchor_type]
+        # 挑选anchor_type不同的作为负样本 # neg_sample_list[i]: [cur_frame_id, x, y, anchor_type]
         neg_sample_list = [_dat for _dat in self.anchor_dict[origin_frame_id] if _dat[3] != self.anchor_list[idx][4]]
         # 在负样本集合中随机选取self.neg_sample_num个负样本id
         neg_sample_id_list = [random.randint(0, len(neg_sample_list)-1) for i in range(self.neg_sample_num)]
@@ -143,8 +190,10 @@ class OffRoadDatasetExtend(Dataset):
         neg_sample_xy = np.zeros((self.neg_sample_num, 2), dtype=np.int32)
         neg_sample_bg = np.zeros((self.neg_sample_num, self.background_size, self.background_size, self.channels), dtype=np.uint8)
         for i, neg_id in enumerate(neg_sample_id_list):
+            # 读取锚点所在frame对应的图像
+            full_img, is_get_bg = self.__get_image_from_file__(neg_sample_list[neg_id][0])
             # 负样本： 在patch[_id]范围内随机选取新的中心点，作为负样本patch中心
-            neg_sample[i], neg_sample_xy[i], neg_sample_bg[i] = self.__getSample__(full_img, neg_sample_list[neg_id], rand_sample=self.rand_sample, get_background=is_get_bg)
+            neg_sample[i], neg_sample_xy[i], neg_sample_bg[i] = self.__getSample__(full_img, neg_sample_list[neg_id][1:], rand_sample=self.rand_sample, get_background=is_get_bg)
 
         anchor_tensor = torch.zeros(1, self.channels, 224, 224)
         pos_sample_tensor = torch.zeros(pos_sample.shape[0], self.channels, 224, 224)

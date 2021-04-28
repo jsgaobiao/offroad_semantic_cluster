@@ -7,6 +7,7 @@ FilePath: /offroad_semantic_cluster/src/patch_cluster.py
 '''
 
 from sklearn.cluster import KMeans
+from sklearn_extra.cluster import KMedoids
 import numpy as np
 import torch
 import cv2
@@ -29,7 +30,7 @@ def parse_option():
     parser.add_argument('--kmeans', type=int, help='kmeans聚类的类别数量')
     parser.add_argument('--pre_video',type=str, default="", help='directory of video for each frame\'s segmentation')
     parser.add_argument('--batch_pred', type=int, default=8000, help='将多个patch放到一个batch中再进行标签预测，加快计算速度')
-    parser.add_argument('--background', type=int, default=192, help='size of background patch')
+    parser.add_argument('--background', type=int, default=320, help='size of background patch')
     # resume path
     parser.add_argument('--model_path', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
     parser.add_argument('--result_path', type=str, default="results", help='path to save result')
@@ -41,7 +42,7 @@ def parse_option():
     parser.add_argument('--nce_t', type=float, default=0.07)
     parser.add_argument('--nce_m', type=float, default=0.5, help='the momentum for dynamically updating the memory.')
     parser.add_argument('--feat_dim', type=int, default=128, help='dim of feat for inner product')
-    parser.add_argument('--in_channel', type=int, default=3, help='dim of input image channel (3: RGB, 5: RGBXY, 6: RGB+Background)')
+    parser.add_argument('--in_channel', type=int, default=6, help='dim of input image channel (3: RGB, 5: RGBXY, 6: RGB+Background)')
 
     opt = parser.parse_args()
     # 要保存每个anchor的特征，所以batch_size必须是1
@@ -223,14 +224,14 @@ def predict_all_patch(args, data_loader, model, k_means_model):
     tot_frame = 0
     with torch.no_grad():
         for idx, (anchor, _, _, frame_id, _full_img, _, _, _, _) in enumerate(data_loader):
-            print(idx, frame_id)
+            # print(idx, frame_id)
             # 来了一帧新的frame，处理上面的所有patch
             if last_frame_id != frame_id.numpy()[0]:                
                 full_img = _full_img[0,:,:,:3].numpy().astype(np.uint8)
                 _patch_mask = np.zeros((full_img.shape), dtype=np.uint8)
                 # 滑动窗处理所有的patch，先不考虑天空，只滑动下半张图片
                 patch_size = 64
-                pred_res = 64    # 分类的分辨率：每个patch中间pred_res*pred_res的方块赋予该patch的类别标签
+                pred_res = 25    # 分类的分辨率：每个patch中间pred_res*pred_res的方块赋予该patch的类别标签
                
                 for i in range(full_img.shape[0]//2, full_img.shape[0]-pred_res//2, pred_res):
                     for j in range(pred_res//2, full_img.shape[1]-pred_res//2, pred_res):
@@ -298,8 +299,8 @@ def predict_vidoe(args, model, k_means_model):
                 print('Video end!')
                 break
             frame_id = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
-            # if (frame_id % 5 == 1):
-                # continue
+            if (frame_id % 5 != 1):
+                continue
             # 如果有结果就不重复计算了
             if os.path.isfile(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.mask.png")):
                 continue
@@ -366,7 +367,7 @@ def predict_vidoe(args, model, k_means_model):
             cv2.imwrite(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.png"), full_img)      
             cv2.imwrite(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.mask.png"), _patch_mask)        
             # 将计算好的patch对应的feature保存到文件里
-            print(features_for_save.shape)
+            # print(features_for_save.shape)
             np.save(os.path.join(args.result_path.replace("cluster_results", "features"), str(frame_id)+".npy"), features_for_save)
             # print info
             print('Save video fine segmentation: [{0}] {1}'.format(frame_id, os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.png")))
@@ -466,7 +467,7 @@ def eval_dis_2_road(args, data_loader, model, k_means_model):
             # print info
             print('Save distance to road patch image: [{0}/{1}]'.format(frame_id, tot_frames))
 
-def evalClusterResult(args, n_data, data_loader, k_means_model):
+def evalClusterResult(args, n_data, data_loader, k_means_model, cluster_method):
     '''
         计算聚类结果和锚点标注的吻合度:
         每张图上有n个锚点，对应了n*(n-1)对约束（互为正样本/负样本），评价聚类结果能满足多少约束对
@@ -475,6 +476,9 @@ def evalClusterResult(args, n_data, data_loader, k_means_model):
     anchor_in_frame = []
     cluster_precision = {}
     cluster_precision_sum = 0
+    error_of_same_type = np.zeros(20)    # 估算一下每个类别锚点预测的错误数(同anchor type被预测为不同类别)
+    error_of_diff_type = np.zeros(20)    # 估算一下每个类别锚点预测的错误数(不同anchor type被预测为相同类别)
+    confuse_mat = np.zeros((10, 7))        # anchor type到聚类类别的预测矩阵
     frame_cnt = 0
     for idx, (anchor, _, _, frame_id, _full_img, _anchor_xy, _, _, anchor_type) in enumerate(data_loader):
         # 需要将同一frame图片上的所有锚点的聚类标签取下来，再计算约束吻合度
@@ -490,6 +494,13 @@ def evalClusterResult(args, n_data, data_loader, k_means_model):
                     cnt = cnt + (1 if anchor_in_frame[i] == anchor_in_frame[j] else 0)
                     # 锚点i和j互为负样本
                     cnt = cnt + (1 if (anchor_in_frame[i][0] != anchor_in_frame[j][0]) and (anchor_in_frame[i][1] != anchor_in_frame[j][1]) else 0)
+                    # 同类锚点预测为不同类别
+                    if (anchor_in_frame[i][0] == anchor_in_frame[j][0]) and (anchor_in_frame[i][1] != anchor_in_frame[j][1]):
+                        error_of_same_type[anchor_in_frame[i][0]] += 2
+                    # 不同类锚点预测为同类别
+                    if (anchor_in_frame[i][0] != anchor_in_frame[j][0]) and (anchor_in_frame[i][1] == anchor_in_frame[j][1]):
+                        error_of_diff_type[anchor_in_frame[i][0]] += 1
+                        error_of_diff_type[anchor_in_frame[j][0]] += 1
             # 当前帧的吻合度 cnt*2/n(n-1)
             cluster_precision[last_frame_id] = cnt * 2 / (_n * (_n - 1))
             cluster_precision_sum += cnt * 2 / (_n * (_n - 1))
@@ -500,6 +511,7 @@ def evalClusterResult(args, n_data, data_loader, k_means_model):
         # 这个anchor对应的聚类后标签
         p_label = k_means_model.labels_[idx]
         anchor_in_frame.append([anchor_type.cpu().numpy()[0], p_label])
+        confuse_mat[anchor_type.cpu().numpy()[0]][p_label] += 1
         # print info
         if (idx + 1) % args.print_freq == 0:
             print('Evaluate clustered anchors: [{0}/{1}]'.format(idx + 1, len(data_loader)))
@@ -513,12 +525,31 @@ def evalClusterResult(args, n_data, data_loader, k_means_model):
             cnt = cnt + (1 if anchor_in_frame[i] == anchor_in_frame[j] else 0)
             # 锚点i和j互为负样本
             cnt = cnt + (1 if (anchor_in_frame[i][0] != anchor_in_frame[j][0]) and (anchor_in_frame[i][1] != anchor_in_frame[j][1]) else 0)
+            # 同类锚点预测为不同类别
+            if (anchor_in_frame[i][0] == anchor_in_frame[j][0]) and (anchor_in_frame[i][1] != anchor_in_frame[j][1]):
+                error_of_same_type[anchor_in_frame[i][0]] += 2
+            # 不同类锚点预测为同类别
+            if (anchor_in_frame[i][0] != anchor_in_frame[j][0]) and (anchor_in_frame[i][1] == anchor_in_frame[j][1]):
+                error_of_diff_type[anchor_in_frame[i][0]] += 1
+                error_of_diff_type[anchor_in_frame[j][0]] += 1
     # 当前帧的吻合度 cnt*2/n(n-1)
     cluster_precision[frame_id.numpy()[0]] = cnt * 2 / (_n * (_n - 1))
     cluster_precision_sum += cnt * 2 / (_n * (_n - 1))
     frame_cnt += 1
 
     print("Average cluster precision: {}".format(cluster_precision_sum / frame_cnt))
+    with open(os.path.join(args.result_path, 'average_cluster_precision.txt'), 'a+') as f_cp:
+        for i in range(confuse_mat.shape[0]):
+            for j in range(confuse_mat.shape[1]):
+                f_cp.write(str(int(confuse_mat[i][j]))+'\t')
+            f_cp.write('\n')
+        f_cp.write("error_of_same_type:\t")
+        for i in error_of_same_type:
+            f_cp.write(str(int(i))+'\t')
+        f_cp.write("\nerror_of_diff_type:\t")
+        for i in error_of_diff_type:
+            f_cp.write(str(int(i))+'\t')
+        f_cp.write("\nModel path: {}\n{}={}, Average cluster precision: {}\n\n".format(args.model_path, cluster_method, args.kmeans, cluster_precision_sum / frame_cnt))
     return cluster_precision
     
 
@@ -569,20 +600,30 @@ def main():# 供直接运行本脚本
     # 计算所有patch对应的特征向量
     all_features = calcAllFeature(args, model, data_loader, n_data)
 
-    # K-means聚类
-    if (os.path.isfile(os.path.join(args.result_path, "kmeans{}.pkl".format(args.kmeans)))):
-        k_means_model = joblib.load(os.path.join(args.result_path, "kmeans{}.pkl".format(args.kmeans)))
+    cluster_method = "kmeans" # "kmeans" or "kmedoids"
+    if cluster_method == "kmeans":
+        # K-means聚类
+        if (os.path.isfile(os.path.join(args.result_path, "kmeans{}.pkl".format(args.kmeans)))):
+            k_means_model = joblib.load(os.path.join(args.result_path, "kmeans{}.pkl".format(args.kmeans)))
+        else:
+            k_means_model = KMeans(n_clusters=args.kmeans).fit(all_features)
+            joblib.dump(k_means_model, os.path.join(args.result_path, "kmeans{}.pkl".format(args.kmeans)))
+        print("K-means cluster over!")
     else:
-        k_means_model = KMeans(n_clusters=args.kmeans).fit(all_features)
-        joblib.dump(k_means_model, os.path.join(args.result_path, "kmeans{}.pkl".format(args.kmeans)))
-    print("K-means cluster over!")
+        # K-medoids聚类
+        if (os.path.isfile(os.path.join(args.result_path, "kmedoids{}.pkl".format(args.kmeans)))):
+            k_means_model = joblib.load(os.path.join(args.result_path, "kmedoids{}.pkl".format(args.kmeans)))
+        else:
+            k_means_model = KMedoids(n_clusters=args.kmeans, metric="cosine").fit(all_features)
+            joblib.dump(k_means_model, os.path.join(args.result_path, "kmedoids{}.pkl".format(args.kmeans)))
+        print("K-Medoids cluster over!")
     
     # 计算聚类结果和锚点标注的吻合度
-    cluster_precision = evalClusterResult(args, n_data, data_loader, k_means_model)
+    cluster_precision = evalClusterResult(args, n_data, data_loader, k_means_model, cluster_method)
 
     # 预测每个anchor(patch)的类别并保存可视化结果
     print("Start predicting anchor labels...")
-    # predict_patch(args, data_loader, k_means_model, cluster_precision)
+    predict_patch(args, data_loader, k_means_model, cluster_precision)
 
     # PCA可视化类别簇
     print("Start PCA visualization...")
@@ -604,9 +645,9 @@ def main():# 供直接运行本脚本
     # eval_dis_2_road(args, data_loader, model, k_means_model)
 
     # 将所有帧的可视化结果拼成video
-    if (args.pre_video):
-        print("Start predicting segmentation of video {}".format(args.pre_video))
-        predict_vidoe(args, model, k_means_model)
+    # if (args.pre_video):
+    #     print("Start predicting segmentation of video {}".format(args.pre_video))
+    #     predict_vidoe(args, model, k_means_model)
 
 if __name__ == '__main__':
     main()

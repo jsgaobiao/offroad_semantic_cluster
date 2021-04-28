@@ -43,9 +43,9 @@ def parse_option():
 
     parser.add_argument('--print_freq', type=int, default=10, help='print frequency')
     parser.add_argument('--tb_freq', type=int, default=500, help='tb frequency')
-    parser.add_argument('--save_freq', type=int, default=50, help='save frequency')
+    parser.add_argument('--save_freq', type=int, default=5, help='save frequency')
     parser.add_argument('--batch_size', type=int, default=128, help='batch_size')
-    parser.add_argument('--num_workers', type=int, default=8, help='num of workers to use')
+    parser.add_argument('--num_workers', type=int, default=16, help='num of workers to use')
     parser.add_argument('--epochs', type=int, default=800, help='number of training epochs')
     parser.add_argument('--background', type=int, default=192, help='size of background patch')
     parser.add_argument('--patch_size', type=int, default=64, help='size of patch')
@@ -80,6 +80,7 @@ def parse_option():
 
     # specify folder
     parser.add_argument('--data_folder', type=str, default=None, help='path to data')
+    parser.add_argument('--input_video', type=str, default=None, help='input video file')
     parser.add_argument('--model_path', type=str, default="trained_models", help='path to save model')
     parser.add_argument('--tb_path', type=str, default="tensorboards", help='path to tensorboard')
     parser.add_argument('--subset', type=str, default="train", help='subset for training')
@@ -154,7 +155,8 @@ def get_train_loader(args):
         transforms.ToTensor(),
         transforms.Normalize(mean=mean, std=std),
     ])
-    train_dataset = OffRoadDataset(args.data_folder, subset=args.subset, 
+    train_dataset = OffRoadDatasetExtend(args.data_folder, subset=args.subset, 
+                                                input_video=args.input_video,
                                                 neg_sample_num=args.nce_k, 
                                                 transform=train_transform,
                                                 channels=args.in_channel, 

@@ -70,7 +70,7 @@ def train_GP_classification(X, Y, epoch=100, learning_rate=0.1):
 
 def eval_GP_classification(test_x, model, likelihood):
     '''
-        根据高斯过程的模型预测test_x的分布，pred_means的维度为[n,...], n表示分类的类别数量    
+        根据高斯过程的模型预测test_x的分布，pred_means的维度为[C, n], C表示分类的类别数量    
         # test_x: [n, f_dim]
         # pred_means: [C, n]    C是类别数量
         # pred_var: [C, n]      C是类别数量
