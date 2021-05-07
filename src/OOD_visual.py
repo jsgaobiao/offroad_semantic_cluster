@@ -1,4 +1,5 @@
 import numpy as np
+import math
 import os
 from numpy.core.fromnumeric import size
 import torch
@@ -532,6 +533,65 @@ def show_uncertainty_img(args, case_study_frame_id, case_study_uncertainty):
             break
     # return features_for_save, np.array(features_type_for_save)[:,0]
 
+def my_softmax(x):
+    """Compute the softmax in a numerically stable way."""
+    x = x - np.max(x)
+    exp_x = np.exp(x)
+    softmax_x = exp_x / np.sum(exp_x)
+    return softmax_x
+
+def my_entropy(probs, base=None):
+    """ Computes entropy of label distribution. """
+    ent = 0.
+    # Compute entropy
+    base = math.e if base is None else base
+    for i in probs:
+        ent -= i * math.log(i, base)
+    return ent
+
+def vis_entropy_uncertainty(args, X, Y):
+    # 降维之后的features，用entropy建模不确定性，可视化看看效果
+    # X：[args.k_means个聚类中心点+若干锚点]
+    '''计算所有位置的entropy'''
+    test_x_mat, test_y_mat = np.meshgrid(np.arange(-2.0, 2.1, 0.1), np.arange(-2.0, 2.1, 0.1))
+    entropy_list_rbf = np.zeros((test_x_mat.shape[0],test_x_mat.shape[1]))
+    for _i, i in enumerate(np.arange(-2, 2.1, 0.1)):
+        for _j, j in enumerate(np.arange(-2, 2.1, 0.1)):
+            pseudo_rbf_prob = np.zeros(args.kmeans)
+            for k in range(args.kmeans):
+                # 计算到聚类中心的RBF距离作为概率值
+                _sigma = 0.2     # RBF kernel 的参数 length scale
+                rbf_dis = np.exp(-np.linalg.norm([i,j] - X[k])**2 / (2*_sigma*_sigma))
+                pseudo_rbf_prob[k] = rbf_dis
+            # pseudo_rbf_prob = my_softmax(pseudo_rbf_prob)
+            # entropy_list_rbf.append(my_entropy(pseudo_rbf_prob))
+            entropy_list_rbf[_j][_i] = pseudo_rbf_prob.max()
+    '''可视化'''
+    fig, ax = plt.subplots(1, 1)
+    im = ax.contourf(
+        test_x_mat, test_y_mat, entropy_list_rbf, levels=20 #np.linspace(-9, 2, 21)
+    )
+    fig.colorbar(im)
+    ax.set_title("RBF")
+    # 需要画出锚点位置
+    for j in range(X[args.kmeans:].shape[0]):
+        c = anchor_color[Y[j]]
+        hex_c = '#%02x%02x%02x' % (c[2], c[1], c[0])
+        ax.text(X[j+args.kmeans, 0], X[j+args.kmeans, 1], 
+                str(Y[j]), 
+                c=hex_c,
+                fontdict={'size': 8},
+                alpha = 0.4)
+    # 需要画聚类中心点位置
+    for i, j in enumerate(range(X[:args.kmeans].shape[0])):
+        c = anchor_color[i]
+        hex_c = '#%02x%02x%02x' % (c[2], c[1], c[0])
+        ax.scatter(X[i, 0], X[i, 1], 
+                c=hex_c,
+                s=5, linewidth=2, edgecolors='k',
+                alpha = 1)
+    fig.savefig(os.path.join(args.result_path, '../', 'entropy_vis(rbf).png'), dpi=600)
+
 if __name__ == "__main__":           
 
     # parse argument
@@ -577,6 +637,8 @@ if __name__ == "__main__":
                                                                     mode='pca', 
                                                                     features_for_case_study=features_for_save, 
                                                                     features_type_for_case_study=features_type_for_save)
+    # 降维之后的features，用entropy建模不确定性，可视化看看效果
+    vis_entropy_uncertainty(args, low_dim_pos[:args.kmeans+anchor_feature_list.shape[0]], k_means_model.labels_)
 
     # 降维之后的features，用高斯过程建模不确定性
     GPC_model, GPC_likelihood = myGaussianProcess.train_GP_classification(low_dim_pos[args.kmeans:_feature_list.shape[0]], k_means_model.labels_)
@@ -587,9 +649,9 @@ if __name__ == "__main__":
     # 预测高斯过程的均值方差
     _, pred_means, pred_vars = myGaussianProcess.eval_GP_classification(test_x, GPC_model, GPC_likelihood)
     # 可视化高斯过程的结果(case study样本)
-    case_study_uncertainty = myGaussianProcess.visualize(args, test_x_mat, test_y_mat, pred_means, pred_vars, case_study_frame_id, case_study_pos=low_dim_pos[_feature_list.shape[0]:], case_study_type=features_type_for_save)
+    # case_study_uncertainty = myGaussianProcess.visualize(args, test_x_mat, test_y_mat, pred_means, pred_vars, case_study_frame_id, case_study_pos=low_dim_pos[_feature_list.shape[0]:], case_study_type=features_type_for_save)
     # 可视化高斯过程的结果(锚点样本)
-    # case_study_uncertainty = myGaussianProcess.visualize(args, test_x_mat, test_y_mat, pred_means, pred_vars, case_study_frame_id, case_study_pos=low_dim_pos[args.kmeans:_feature_list.shape[0]], case_study_type=k_means_model.labels_)
+    case_study_uncertainty = myGaussianProcess.visualize(args, test_x_mat, test_y_mat, pred_means, pred_vars, case_study_frame_id, case_study_pos=low_dim_pos[args.kmeans:_feature_list.shape[0]], case_study_type=k_means_model.labels_)
 
     # 将uncertainty可视化到case study的视频帧上面
     # case_study_uncertainty.shape为所有case study的patch排成一维

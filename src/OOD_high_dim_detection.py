@@ -450,7 +450,7 @@ def predict_video_frame_OOD(args, model, k_means_model, GPC_model, GPC_likelihoo
         transforms.ToTensor(),
         transforms.Normalize(mean=mean, std=std),
     ])
-    all_frm_entropy_dict = {}
+    all_frm_cosine_entropy_dict = {}
     all_frm_euclidean_entropy_dict = {}
     patch_size = 64
     # pred_res = 25    # 分类的分辨率：每个patch中间pred_resss*pred_res的方块赋予该patch的类别标签
@@ -539,8 +539,8 @@ def predict_video_frame_OOD(args, model, k_means_model, GPC_model, GPC_likelihoo
             _, pred_means, pred_vars = myGaussianProcess.eval_GP_classification(torch.Tensor(features_for_save[:,2:]), GPC_model, GPC_likelihood)
             
             # 根据到聚类中心的距离，预测patch到每个类别的概率（类似Softmax），然后计算熵
-            entropy_list, entropy_list_euclidean = predict_video_frame_entropy(args, model, k_means_model, features_for_save)
-            all_frm_entropy_dict[frame_id] = entropy_list
+            entropy_list_cosine, entropy_list_euclidean = predict_video_frame_entropy(args, model, k_means_model, features_for_save)
+            all_frm_cosine_entropy_dict[frame_id] = entropy_list_cosine
             all_frm_euclidean_entropy_dict[frame_id] = entropy_list_euclidean
             
             # 将均值/方差保存下来
@@ -550,7 +550,7 @@ def predict_video_frame_OOD(args, model, k_means_model, GPC_model, GPC_likelihoo
           #  np.save(os.path.join(args.result_path.replace("cluster_results", "uncertainty_hist"), str(frame_id)+"_uncertainty.npy"), uncertainty_for_save)
             print("Save uncertainty of frame {}".format(frame_id))
     # 把计算好的entropy保存下来 (分别根据cosine距离和欧几里得距离计算到聚类中心的距离，作为概率值)       
-    np.save(os.path.join(args.result_path.replace("cluster_results", "uncertainty_txt"), "all_frame_entropy_dict.npy"), all_frm_entropy_dict)
+    np.save(os.path.join(args.result_path.replace("cluster_results", "uncertainty_txt"), "all_frame_cosine_entropy_dict.npy"), all_frm_cosine_entropy_dict)
     np.save(os.path.join(args.result_path.replace("cluster_results", "uncertainty_txt"), "all_frame_entropy_euclidean_dict.npy"), all_frm_euclidean_entropy_dict)
 
 def my_softmax(x):
@@ -574,10 +574,10 @@ def predict_video_frame_entropy(args, model, k_means_model, features_for_save):
     根据到聚类中心的距离，预测patch到每个类别的概率（类似Softmax），然后计算熵
     [注意: features_for_save 共2+128维，前2维是patch对应的坐标，后128维是特征向量]
     '''
-    entropy_list = []
+    entropy_list_cosine = []
     entropy_list_euclidean = []
     for i in range(features_for_save.shape[0]):
-        pseudo_prob = np.zeros(args.kmeans)
+        pseudo_cosine_prob = np.zeros(args.kmeans)
         pseudo_euclidean_prob = np.zeros(args.kmeans)
         for _k in range(args.kmeans):
             cluster_center_feat = k_means_model.cluster_centers_[_k]
@@ -585,15 +585,19 @@ def predict_video_frame_entropy(args, model, k_means_model, features_for_save):
             cos_dis = np.dot(features_for_save[i, 2:], cluster_center_feat.T) / (np.linalg.norm(features_for_save[i, 2:]) * np.linalg.norm(cluster_center_feat))
             # 计算到聚类中心的欧几里得距离作为概率值
             euclidean_dis = np.linalg.norm(features_for_save[i, 2:] - cluster_center_feat)
-            pseudo_prob[_k] = cos_dis
+            # 计算到聚类中心的RBF距离作为概率值
+            # _sigma = 0.1    # RBF kernel 的参数 length scale
+            # rbf_dis = np.exp(-euclidean_dis/(2*_sigma*_sigma))
+            pseudo_cosine_prob[_k] = cos_dis
             pseudo_euclidean_prob[_k] = euclidean_dis
 
         # 使用Softmax归一化,并计算熵
-        pseudo_prob = my_softmax(pseudo_prob)
+        pseudo_cosine_prob = my_softmax(pseudo_cosine_prob)
+        entropy_list_cosine.append(my_entropy(pseudo_cosine_prob))
+
         pseudo_euclidean_prob = my_softmax(pseudo_euclidean_prob)
-        entropy_list.append(my_entropy(pseudo_prob))
         entropy_list_euclidean.append(my_entropy(pseudo_euclidean_prob))
-    return np.array(entropy_list), np.array(entropy_list_euclidean)
+    return np.array(entropy_list_cosine), np.array(entropy_list_euclidean)
  
 if __name__ == "__main__":           
 
@@ -653,7 +657,7 @@ if __name__ == "__main__":
     #                                                                 features_for_case_study=features_for_save, 
     #                                                                 features_type_for_case_study=features_type_for_save)
 
-    # 降维之后的features，用高斯过程建模不确定性
+    # 用高斯过程建模不确定性
     GPC_model, GPC_likelihood = myGaussianProcess.train_GP_classification(anchor_feature_list, type_of_anchor_feature_list)
 
     # 根据建模好的高斯过程，计算所有视频帧的不确定性(顺便计算熵)
