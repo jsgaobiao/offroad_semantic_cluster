@@ -24,7 +24,7 @@ class OffRoadDataset(Dataset):
         self.anchor_dict = np.load(os.path.join(self.root,"anchors_annotation.npy"), allow_pickle=True).item()
         self.anchor_list = []
         for _f_id in sorted(self.anchor_dict.keys()):
-            for _ac_id in range(len(self.anchor_dict[_f_id])):
+            for _ac_id in range(len(self.anchor_dict[_f_id])-1, -1, -1):
                 # 如果有anchor_lab_mask，就要屏蔽一部分锚点标注
                 if self.anchor_dict[_f_id][_ac_id][2] in anchor_lab_mask:
                     del self.anchor_dict[_f_id][_ac_id]
