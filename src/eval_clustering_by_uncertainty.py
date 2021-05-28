@@ -79,8 +79,8 @@ def parse_option():
     # 将使用的配置表保存到文件中
     args_to_save = parser.parse_args()
     print(args_to_save)
-
     return opt
+    
 def set_model(args):
     print('==> loading pre-trained model')
     if torch.cuda.is_available():
@@ -475,7 +475,7 @@ def evalUncertaintyOfCluster(args, cluster_method, cluster_model, anchor_feature
     with open(os.path.join(args.result_path.replace("cluster_results", "risk_coverage"), 'risk_coverage_curve_of_all_K.csv'.format(cluster_method, args.kmeans)), 'a+') as f:
         f.write(u"\n聚类数量,{}\n".format(args.kmeans))
         # 保存各聚类类别的样本占比
-        f.write(u"各类样本占比,")
+        f.write(u"各类样本数量,")
         for i in range(args.kmeans):
             f.write("{},".format(num_coverage_curve_of_class[-1, i]))
         f.write('\n')
@@ -487,7 +487,7 @@ def evalUncertaintyOfCluster(args, cluster_method, cluster_model, anchor_feature
         #         f.write("{},".format(cluster_risk_coverage_curve_of_class[j, i]))
         #         weighted_risk[i] += (cluster_risk_coverage_curve_of_class[j, i] / sum_risk) * j
         #     f.write('\n')
-        f.write(u"各类Risk加权均值,")
+        f.write(u"均值点coverage,")
         for i in range(args.kmeans):
             f.write("{},".format(weighted_risk[i][0]))
         f.write("\n")

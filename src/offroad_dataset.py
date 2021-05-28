@@ -10,7 +10,7 @@ import time
 import random
 
 class OffRoadDataset(Dataset):
-    def __init__(self, root, subset='train', pos_sample_num=1, neg_sample_num=32, transform=None, channels=3, patch_size=64, background_size=192, use_data_aug_for_bg=False, rand_sample=True):
+    def __init__(self, root, subset='train', pos_sample_num=1, neg_sample_num=32, transform=None, channels=3, patch_size=64, background_size=192, use_data_aug_for_bg=False, rand_sample=True, anchor_lab_mask=[]):
         super(OffRoadDataset, self).__init__()
         self.root = os.path.join(root, subset)
         self.neg_sample_num = neg_sample_num
@@ -25,8 +25,11 @@ class OffRoadDataset(Dataset):
         self.anchor_list = []
         for _f_id in sorted(self.anchor_dict.keys()):
             for _ac_id in range(len(self.anchor_dict[_f_id])):
-                self.anchor_list.append([_f_id] + self.anchor_dict[_f_id][_ac_id])  # [frame_id, anchor_x, anchor_y, anchor_type]
-            
+                # 如果有anchor_lab_mask，就要屏蔽一部分锚点标注
+                if self.anchor_dict[_f_id][_ac_id][2] in anchor_lab_mask:
+                    del self.anchor_dict[_f_id][_ac_id]
+                else:
+                    self.anchor_list.append([_f_id] + self.anchor_dict[_f_id][_ac_id])  # [frame_id, anchor_x, anchor_y, anchor_type]
 
     def __len__(self):
         return len(self.anchor_list)

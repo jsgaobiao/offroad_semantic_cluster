@@ -85,7 +85,7 @@ def parse_option():
     parser.add_argument('--tb_path', type=str, default="tensorboards", help='path to tensorboard')
     parser.add_argument('--subset', type=str, default="train", help='subset for training')
     parser.add_argument('--note', type=str, default=None, help='comments to current train settings')
-
+    parser.add_argument('--anchor_lab_mask', type=str, default='', help='需要屏蔽的anchor标签')
     # add new views
     parser.add_argument('--view', type=str, default='Lab', choices=['Lab', 'YCbCr'])
 
@@ -137,6 +137,9 @@ def parse_option():
     if not os.path.isdir(opt.data_folder):
         raise ValueError('data path not exist: {}'.format(opt.data_folder))
 
+    opt.anchor_lab_mask = [int(item) for item in opt.anchor_lab_mask.split(',')]
+    print("\nmasked anchor label: {}\n".format(opt.anchor_lab_mask))
+    
     return opt
 
 
@@ -169,7 +172,8 @@ def get_train_loader(args):
                                                 channels=args.in_channel, 
                                                 patch_size=args.patch_size,
                                                 background_size=args.background,
-                                                use_data_aug_for_bg=True)
+                                                use_data_aug_for_bg=True,
+                                                anchor_lab_mask=args.anchor_lab_mask)
     # train loader
     # TODO: 用sampler或batch_sampler放入tensorboard可视化
     def worker_init_fn(worker_id):
