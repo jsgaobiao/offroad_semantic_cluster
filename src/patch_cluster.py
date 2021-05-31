@@ -118,11 +118,13 @@ def calcAllFeature(args, model, data_loader, n_data, recalc_feature=True):
     # 如果存在已经保存的结果，就载入
     if os.path.isfile(os.path.join(args.result_path, "all_patch_features.npy")) and recalc_feature==False:
         all_features = np.load(os.path.join(args.result_path, "all_patch_features.npy"))
+        all_features_type = np.load(os.path.join(args.result_path, "all_patch_features_type.npy"))
     else:
         # 否则，计算所有patch的特征
         all_features = np.zeros((n_data, args.feat_dim))
+        all_features_type = np.zeros(n_data)
         with torch.no_grad():
-            for idx, (anchor, _, _, frame_id, full_img, anchor_xy, _, _, _) in enumerate(data_loader):
+            for idx, (anchor, _, _, frame_id, full_img, anchor_xy, _, _, anchor_type) in enumerate(data_loader):
                 # anchor shape: [batch_size, 1, channel, H, W] # neg_sample,pos_sample shape: [batch_size, K, channel, H, W]
                 batch_size = anchor.size(0)
                 # batch_size必须是1，因为要逐个保存每个anchor的特征
@@ -140,12 +142,14 @@ def calcAllFeature(args, model, data_loader, n_data, recalc_feature=True):
                 feature = model(inputs)     # [batch_size*(1), feature_dim]
                 for _bs in range(batch_size):
                     all_features[idx] = feature[_bs].cpu().numpy()
+                    all_features_type[idx] = anchor_type
                 # ===============================================
                 # print info
                 if (idx + 1) % args.print_freq == 0:
                     print('Calculate feature: [{0}/{1}]'.format(idx + 1, len(data_loader)))
             np.save(os.path.join(args.result_path, "all_patch_features.npy"), all_features)
-    return all_features
+            np.save(os.path.join(args.result_path, "all_patch_features_type.npy"), all_features_type)
+    return all_features, all_features_type
 
 def getPatchXY(_img, _x, _y, anchor_width):
     ''' 
@@ -284,7 +288,7 @@ def predict_vidoe(args, model, k_means_model):
     ])
     patch_size = 64
     pred_res = 25    # 分类的分辨率：每个patch中间pred_res*pred_res的方块赋予该patch的类别标签
-    anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,255,0), (255, 191, 0), (0, 191, 255), (128, 0, 255)]
+    anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,128,0), (31,102,156), (220,220,220), (80,127,255), (140,230,240), (127,255,0), (158,168,3), (255,144,30), (214,112,218)]
     cap = cv2.VideoCapture(args.pre_video)  # 读取待标注数据
     if not os.path.isdir(args.result_path.replace("cluster_results", "video_pred")):
         os.makedirs(args.result_path.replace("cluster_results", "video_pred"))
@@ -299,7 +303,7 @@ def predict_vidoe(args, model, k_means_model):
                 print('Video end!')
                 break
             frame_id = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
-            if (frame_id % 5 != 1):
+            if (frame_id % 2 != 1):
                 continue
             # 如果有结果就不重复计算了
             if os.path.isfile(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.mask.png")):
@@ -598,7 +602,7 @@ def main():# 供直接运行本脚本
     model = set_model(args)
 
     # 计算所有patch对应的特征向量
-    all_features = calcAllFeature(args, model, data_loader, n_data)
+    all_features, type_of_anchor_feature_list = calcAllFeature(args, model, data_loader, n_data)
 
     cluster_method = "kmeans" # "kmeans" or "kmedoids"
     if cluster_method == "kmeans":
@@ -631,7 +635,7 @@ def main():# 供直接运行本脚本
     vis_test = False
     if (vis_test):
         data_loader_test, n_data_test, _ = get_data_loader(args, subset="test_new")
-        all_features_test = calcAllFeature(args, model, data_loader_test, n_data_test, recalc_feature=True)
+        all_features_test, _ = calcAllFeature(args, model, data_loader_test, n_data_test, recalc_feature=True)
         all_features = np.concatenate((all_features, all_features_test), axis=0)
         pcaVisualize(args, all_features, k_means_model, sub_dataset)
     else:
@@ -645,9 +649,9 @@ def main():# 供直接运行本脚本
     # eval_dis_2_road(args, data_loader, model, k_means_model)
 
     # 将所有帧的可视化结果拼成video
-    # if (args.pre_video):
-    #     print("Start predicting segmentation of video {}".format(args.pre_video))
-    #     predict_vidoe(args, model, k_means_model)
+    if (args.pre_video):
+        print("Start predicting segmentation of video {}".format(args.pre_video))
+        predict_vidoe(args, model, k_means_model)
 
 if __name__ == '__main__':
     main()

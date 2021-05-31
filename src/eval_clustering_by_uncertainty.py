@@ -55,6 +55,7 @@ def parse_option():
     parser.add_argument('--nce_m', type=float, default=0.5, help='the momentum for dynamically updating the memory.')
     parser.add_argument('--feat_dim', type=int, default=128, help='dim of feat for inner product')
     parser.add_argument('--in_channel', type=int, default=3, help='dim of input image channel (3: RGB, 5: RGBXY, 6: RGB+Background)')
+    parser.add_argument('--anchor_lab_mask', type=str, default='', help='需要屏蔽的anchor标签')
 
     opt, unknowns = parser.parse_known_args()
     # 要保存每个anchor的特征，所以batch_size必须是1
@@ -76,6 +77,9 @@ def parse_option():
     if not os.path.isdir(opt.result_path.replace("cluster_results", "risk_coverage")):
         os.makedirs(opt.result_path.replace("cluster_results", "risk_coverage"))
     
+    opt.anchor_lab_mask = [int(item) for item in opt.anchor_lab_mask.split(',')]
+    print("\nmasked anchor label: {}\n".format(opt.anchor_lab_mask))
+
     # 将使用的配置表保存到文件中
     args_to_save = parser.parse_args()
     print(args_to_save)
@@ -190,7 +194,20 @@ def load_anno(args):
     anchor_dict = np.load((file_name), allow_pickle=True).item()
     anchor_list = []
     for _f_id in sorted(anchor_dict.keys()):
-        for _ac_id in range(len(anchor_dict[_f_id])):
+        for _ac_id in range(len(anchor_dict[_f_id])-1, -1, -1):
+            # 如果有anchor_lab_mask，就要屏蔽一部分锚点标注
+            if anchor_dict[_f_id][_ac_id][2] in args.anchor_lab_mask:
+                del anchor_dict[_f_id][_ac_id]
+        # 判断一下，如果_f_id帧只剩下一种类型的锚点或者没有锚点，就丢弃这一帧
+        if len(anchor_dict[_f_id]) == 0:
+            print('Discard frame {} for empty anchor dict\n'.format(_f_id))
+            del anchor_dict[_f_id]
+            continue
+        if min(np.array(anchor_dict[_f_id])[:,2]) == max(np.array(anchor_dict[_f_id])[:,2]):
+            print('Discard frame {} which only has one type anchors {}\n'.format(_f_id, anchor_dict[_f_id][0][2]))
+            del anchor_dict[_f_id]
+            continue
+        for _ac_id in range(len(anchor_dict[_f_id])-1, -1, -1):
             anchor_list.append([_f_id] + anchor_dict[_f_id][_ac_id])  # [frame_id, anchor_x, anchor_y, anchor_type]
 
     return anchor_dict, anchor_list
@@ -398,7 +415,7 @@ def evalUncertaintyOfCluster(args, cluster_method, cluster_model, anchor_feature
     risk_coverage = sorted(risk_coverage, key=lambda x:x[0])    # 按照response排序，逐步增加coverage并绘risk_coverage图
     risk_coverage_curve = []
     risk_coverage_curve_of_class = []
-    cur_risk_coverage_of_class = [0]*int(type_of_anchor_feature_list.max()+1)
+    cur_risk_coverage_of_class = [0]*9 # int(type_of_anchor_feature_list.max()+1)
     num_coverage_curve_of_class = []    # 统计样本数量随coverage的变化
     cur_num_coverage_of_class = [1e-6]*15
     cluster_risk_coverage_curve_of_class = []    # 聚类类别下的risk分布
@@ -611,7 +628,7 @@ if __name__ == "__main__":
         args.kmeans = K
         if cluster_method == "kmeans":
             # K-means聚类
-            if (os.path.isfile(os.path.join(args.result_path, "kmeans{}.pkl".format(args.kmeans)))):
+            if (os.path.isfile(os.path.join(args.result_path, "kmeans{}.pkl".format(args.kmeans))) and False):
                 cluster_model = joblib.load(os.path.join(args.result_path, "kmeans{}.pkl".format(args.kmeans)))
             else:
                 cluster_model = KMeans(n_clusters=args.kmeans).fit(anchor_feature_list)

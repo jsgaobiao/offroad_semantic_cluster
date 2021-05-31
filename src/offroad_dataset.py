@@ -28,8 +28,17 @@ class OffRoadDataset(Dataset):
                 # 如果有anchor_lab_mask，就要屏蔽一部分锚点标注
                 if self.anchor_dict[_f_id][_ac_id][2] in anchor_lab_mask:
                     del self.anchor_dict[_f_id][_ac_id]
-                else:
-                    self.anchor_list.append([_f_id] + self.anchor_dict[_f_id][_ac_id])  # [frame_id, anchor_x, anchor_y, anchor_type]
+            # 判断一下，如果_f_id帧只剩下一种类型的锚点或者没有锚点，就丢弃这一帧
+            if len(self.anchor_dict[_f_id]) == 0:
+                print('Discard frame {} for empty anchor dict\n'.format(_f_id))
+                del self.anchor_dict[_f_id]
+                continue
+            if min(np.array(self.anchor_dict[_f_id])[:,2]) == max(np.array(self.anchor_dict[_f_id])[:,2]):
+                print('Discard frame {} which only has one type anchors {}\n'.format(_f_id, self.anchor_dict[_f_id][0][2]))
+                del self.anchor_dict[_f_id]
+                continue
+            for _ac_id in range(len(self.anchor_dict[_f_id])-1, -1, -1):
+                self.anchor_list.append([_f_id] + self.anchor_dict[_f_id][_ac_id])  # [frame_id, anchor_x, anchor_y, anchor_type]
 
     def __len__(self):
         return len(self.anchor_list)
