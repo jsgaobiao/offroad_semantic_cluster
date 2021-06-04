@@ -135,7 +135,8 @@ def get_data_loader(args, subset='train'):
                                                 transform=data_transform,
                                                 background_size=args.background, 
                                                 channels=args.in_channel, 
-                                                patch_size=64)
+                                                patch_size=64,
+                                                anchor_lab_mask=args.anchor_lab_mask)
     # data loader
     # TODO: 用sampler或batch_sampler放入tensorboard可视化
     data_loader = torch.utils.data.DataLoader(sub_dataset, batch_size=args.batch_size, 

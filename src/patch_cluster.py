@@ -43,6 +43,7 @@ def parse_option():
     parser.add_argument('--nce_m', type=float, default=0.5, help='the momentum for dynamically updating the memory.')
     parser.add_argument('--feat_dim', type=int, default=128, help='dim of feat for inner product')
     parser.add_argument('--in_channel', type=int, default=6, help='dim of input image channel (3: RGB, 5: RGBXY, 6: RGB+Background)')
+    parser.add_argument('--anchor_lab_mask', type=str, default='', help='需要屏蔽的anchor标签')
 
     opt = parser.parse_args()
     # 要保存每个anchor的特征，所以batch_size必须是1
@@ -58,6 +59,9 @@ def parse_option():
     if not os.path.isdir(opt.result_path.replace("cluster_results", "features")):
         os.makedirs(opt.result_path.replace("cluster_results", "features"))
     
+    opt.anchor_lab_mask = [int(item) for item in opt.anchor_lab_mask.split(',')]
+    print("\nmasked anchor label: {}\n".format(opt.anchor_lab_mask))
+
     # 将使用的配置表保存到文件中
     args_to_save = parser.parse_args()
     print(args_to_save)
@@ -100,7 +104,8 @@ def get_data_loader(args, subset='train'):
                                                 transform=data_transform,
                                                 background_size=args.background, 
                                                 channels=args.in_channel, 
-                                                patch_size=64)
+                                                patch_size=64,
+                                                anchor_lab_mask=args.anchor_lab_mask)
     # data loader
     # TODO: 用sampler或batch_sampler放入tensorboard可视化
     data_loader = torch.utils.data.DataLoader(sub_dataset, batch_size=args.batch_size, 
@@ -303,7 +308,7 @@ def predict_vidoe(args, model, k_means_model):
                 print('Video end!')
                 break
             frame_id = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
-            if (frame_id % 2 != 1):
+            if (frame_id % 2 != 0):
                 continue
             # 如果有结果就不重复计算了
             if os.path.isfile(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.mask.png")):
