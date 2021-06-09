@@ -421,11 +421,16 @@ def evalUncertaintyOfCluster(args, cluster_method, cluster_model, anchor_feature
     cur_num_coverage_of_class = [1e-6]*15
     cluster_risk_coverage_curve_of_class = []    # 聚类类别下的risk分布
     cur_cluster_risk_coverage_of_class = [0]*15
-    cur_coverage_step = 1e-10
+    cur_coverage_step = 1.0 / coverage_bins
     tot_risk = 0
+
     for i in range(len(risk_coverage)):
         cur_coverage = (i+1) / len(risk_coverage)
-        if cur_coverage >= cur_coverage_step:
+        tot_risk += np.linalg.norm(risk_coverage[i][0])
+        cur_risk_coverage_of_class[int(risk_coverage[i][2])] += np.linalg.norm(risk_coverage[i][0])
+        cur_num_coverage_of_class[int(risk_coverage[i][1])] += 1
+        cur_cluster_risk_coverage_of_class[int(risk_coverage[i][1])] += np.linalg.norm(risk_coverage[i][0])
+        if cur_coverage >= cur_coverage_step or i == len(risk_coverage)-1:
             risk_coverage_curve.append((tot_risk / len(risk_coverage)) / cur_coverage)
             risk_coverage_curve_of_class.append(np.array(cur_risk_coverage_of_class) / len(risk_coverage) / cur_coverage)
             num_coverage_curve_of_class.append(np.array(cur_num_coverage_of_class))
@@ -434,10 +439,6 @@ def evalUncertaintyOfCluster(args, cluster_method, cluster_model, anchor_feature
         # np.eye构造one-hot向量
         # cluster_lab = risk_coverage[i][1]
         # tot_risk += np.linalg.norm(risk_coverage[i][0] - np.eye(args.kmeans)[cluster_lab])
-        tot_risk += np.linalg.norm(risk_coverage[i][0])
-        cur_risk_coverage_of_class[int(risk_coverage[i][2])] += np.linalg.norm(risk_coverage[i][0])
-        cur_num_coverage_of_class[int(risk_coverage[i][1])] += 1
-        cur_cluster_risk_coverage_of_class[int(risk_coverage[i][1])] += np.linalg.norm(risk_coverage[i][0])
 
     # 所有聚类数量的曲线放到一张图上画
     risk_coverage_curve_of_all_K.append(risk_coverage_curve)
@@ -614,15 +615,20 @@ if __name__ == "__main__":
     args = parse_option()
     # 读入标注数据
     anchor_dict, anchor_list = load_anno(args)
+    print("anchor number:", len(anchor_list))
     # set the data loader (n_data: dataset size)
     data_loader, n_data, sub_dataset = get_data_loader(args, subset=args.subset)
     # load model
     model = set_model(args)
     # 计算所有anchor patch对应的特征向量
-    anchor_feature_list, type_of_anchor_feature_list = calcAllFeature(args, model, data_loader, n_data, recalc_feature=False)
+    anchor_feature_list, type_of_anchor_feature_list = calcAllFeature(args, model, data_loader, n_data, recalc_feature=True)
+    print("anchor feature list:", len(anchor_feature_list))
 
     risk_coverage_curve_of_all_K = []
     cluster_method = "kmeans" # "kmeans" or "kmedoids" or "Agglomerative"
+    # 先清空以前写入的数据
+    with open(os.path.join(args.result_path.replace("cluster_results", "risk_coverage"), 'risk_coverage_curve_of_all_K.csv'.format(cluster_method, args.kmeans)), 'a+') as f:
+        f.truncate(0)
     # 枚举聚类数量
     max_k = args.kmeans
     for K in range(3, max_k+1):
@@ -634,7 +640,7 @@ if __name__ == "__main__":
             else:
                 cluster_model = KMeans(n_clusters=args.kmeans).fit(anchor_feature_list)
                 joblib.dump(cluster_model, os.path.join(args.result_path, "kmeans{}.pkl".format(args.kmeans)))
-            print("K-means {} cluster over!".format(args.kmeans))
+            print("------------K-means {} cluster over!------------".format(args.kmeans))
         elif cluster_method == "kmedoids":
             # K-medoids聚类
             if (os.path.isfile(os.path.join(args.result_path, "kmedoids{}.pkl".format(args.kmeans)))):
@@ -642,12 +648,12 @@ if __name__ == "__main__":
             else:
                 cluster_model = KMedoids(n_clusters=args.kmeans, metric="cosine").fit(anchor_feature_list)
                 joblib.dump(cluster_model, os.path.join(args.result_path, "kmedoids{}.pkl".format(args.kmeans)))
-            print("K-Medoids {} cluster over!".format(args.kmeans))
+            print("------------K-Medoids {} cluster over!------------".format(args.kmeans))
         elif cluster_method == "Agglomerative":       
             # 层次聚类
             cluster_model = AgglomerativeClustering(n_clusters=K)
             cluster_model = cluster_model.fit(anchor_feature_list)
-            print("AgglomerativeClustering {} cluster over!".format(args.kmeans))
+            print("------------AgglomerativeClustering {} cluster over!------------".format(args.kmeans))
 
         ''' 评价聚类结果 '''
         # 1. 计算聚类结果和锚点标注的吻合度

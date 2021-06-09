@@ -44,6 +44,7 @@ def parse_option():
     parser.add_argument('--feat_dim', type=int, default=128, help='dim of feat for inner product')
     parser.add_argument('--in_channel', type=int, default=6, help='dim of input image channel (3: RGB, 5: RGBXY, 6: RGB+Background)')
     parser.add_argument('--anchor_lab_mask', type=str, default='', help='需要屏蔽的anchor标签')
+    parser.add_argument('--dont_write_pred_png', action='store_true', help='是否把预测出来的视频帧保存成png图片')
 
     opt = parser.parse_args()
     # 要保存每个anchor的特征，所以batch_size必须是1
@@ -319,6 +320,7 @@ def predict_vidoe(args, model, k_means_model):
             i_batch = []
             j_batch = []
             features_for_save = np.array([])
+            time0 = time.time()
             # 滑动窗处理所有的patch，先不考虑天空，只滑动下半张图片
             for i in range(full_img.shape[0]//2, full_img.shape[0]-pred_res//2, pred_res):
                 for j in range(pred_res//2, full_img.shape[1]-pred_res//2, pred_res):
@@ -341,23 +343,30 @@ def predict_vidoe(args, model, k_means_model):
                     if (batch_cnt % args.batch_pred == 0) or (i+pred_res >= full_img.shape[0]-pred_res//2 and j+pred_res >= full_img.shape[1]-pred_res//2):
                         # if (i+pred_res >= full_img.shape[0]-pred_res//2 and j+pred_res >= full_img.shape[1]-pred_res//2):
                             # print('last batch:{}'.format(batch_cnt))
-                        time0 = time.time()
+                        timea = time.time()
                         # inputs shape --> [batch_size, (1), channel, H, W]
                         inputs = torch.Tensor(_patch_batch)
+                        timeb = time.time()
                         inputs_shape = list(inputs.size())
+                        timec = time.time()
                         # inputs shape --> [batch_size*(1), channel, H, W]
                         inputs = inputs.view((inputs_shape[0], inputs_shape[1], inputs_shape[2], inputs_shape[3]))
+                        timed = time.time()
                         inputs = inputs.float()
+                        timee = time.time()
                         if torch.cuda.is_available():
                             inputs = inputs.cuda()
+                        timef = time.time()
                         # ===================forward=====================
                         _patch_feature_batch = model(inputs)     # [batch_size*(1), feature_dim]
                         time1 = time.time()
+                        print("time:", timea-time0, timeb-timea, timec-timeb, timed-timec, timee-timed, timef-timee, time1-timef)
                         # 逐个预测类别并可视化
                         for _patch_feature, _i, _j in zip(_patch_feature_batch, i_batch, j_batch):
-                            _patch_label = k_means_model.predict(np.expand_dims(_patch_feature.cpu().numpy().astype(np.float), axis=0))
-                            # 将patch分类得到的类别标签绘制到图像上（只绘制i,j为中心，pred_res*pred_res的方块）
-                            _patch_mask = cv2.rectangle(_patch_mask, (_j-pred_res,_i-pred_res), (_j+pred_res,_i+pred_res), anchor_color[_patch_label[0]], thickness=-1) #thickness=-1 表示矩形框内颜色填充
+                            if (not args.dont_write_pred_png):
+                                _patch_label = k_means_model.predict(np.expand_dims(_patch_feature.cpu().numpy().astype(np.float), axis=0))
+                                # 将patch分类得到的类别标签绘制到图像上（只绘制i,j为中心，pred_res*pred_res的方块）
+                                _patch_mask = cv2.rectangle(_patch_mask, (_j-pred_res,_i-pred_res), (_j+pred_res,_i+pred_res), anchor_color[_patch_label[0]], thickness=-1) #thickness=-1 表示矩形框内颜色填充
                             # 将计算好的patch对应的feature保存到文件里
                             _patch_ij_feature = np.expand_dims(np.concatenate(([_i], [_j], _patch_feature.cpu().numpy())), axis=0)
                             if features_for_save.shape[0] == 0:
@@ -370,16 +379,18 @@ def predict_vidoe(args, model, k_means_model):
                         i_batch = []
                         j_batch = []
                         time2 = time.time()
-                        print("time cost: {:.3f} + {:.3f}".format(time1-time0, time2-time1))
+                        print("time cost: {:.3f}".format(time2-time1))
             # alpha 为第一张图片的透明度，beta 为第二张图片的透明度 cv2.addWeighted 将原始图片与 mask 融合
-            full_img = cv2.addWeighted(full_img, 1, _patch_mask, 0.2, 0)
-            cv2.imwrite(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.png"), full_img)      
-            cv2.imwrite(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.mask.png"), _patch_mask)        
+            if (not args.dont_write_pred_png):
+                full_img = cv2.addWeighted(full_img, 1, _patch_mask, 0.2, 0)
+                cv2.imwrite(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.png"), full_img)      
+                cv2.imwrite(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.mask.png"), _patch_mask)        
             # 将计算好的patch对应的feature保存到文件里
             # print(features_for_save.shape)
             np.save(os.path.join(args.result_path.replace("cluster_results", "features"), str(frame_id)+".npy"), features_for_save)
             # print info
-            print('Save video fine segmentation: [{0}] {1}'.format(frame_id, os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.png")))
+            if (not args.dont_write_pred_png):
+                print('Save video fine segmentation: [{0}] {1}'.format(frame_id, os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.png")))
 
 def getColor(_v, color_map):
     # _v的值在[e^(-1), e]之间， 归一化到0-255
@@ -607,7 +618,7 @@ def main():# 供直接运行本脚本
     model = set_model(args)
 
     # 计算所有patch对应的特征向量
-    all_features, type_of_anchor_feature_list = calcAllFeature(args, model, data_loader, n_data)
+    all_features, type_of_anchor_feature_list = calcAllFeature(args, model, data_loader, n_data, recalc_feature=False)
 
     cluster_method = "kmeans" # "kmeans" or "kmedoids"
     if cluster_method == "kmeans":
@@ -628,23 +639,23 @@ def main():# 供直接运行本脚本
         print("K-Medoids cluster over!")
     
     # 计算聚类结果和锚点标注的吻合度
-    cluster_precision = evalClusterResult(args, n_data, data_loader, k_means_model, cluster_method)
+    # cluster_precision = evalClusterResult(args, n_data, data_loader, k_means_model, cluster_method)
 
     # 预测每个anchor(patch)的类别并保存可视化结果
-    print("Start predicting anchor labels...")
-    predict_patch(args, data_loader, k_means_model, cluster_precision)
+    # print("Start predicting anchor labels...")
+    # predict_patch(args, data_loader, k_means_model, cluster_precision)
 
     # PCA可视化类别簇
-    print("Start PCA visualization...")
+    # print("Start PCA visualization...")
     # 同时可视化训练集和测试集 for DEBUG
-    vis_test = False
-    if (vis_test):
-        data_loader_test, n_data_test, _ = get_data_loader(args, subset="test_new")
-        all_features_test, _ = calcAllFeature(args, model, data_loader_test, n_data_test, recalc_feature=True)
-        all_features = np.concatenate((all_features, all_features_test), axis=0)
-        pcaVisualize(args, all_features, k_means_model, sub_dataset)
-    else:
-        pcaVisualize(args, all_features, k_means_model)
+    # vis_test = False
+    # if (vis_test):
+    #     data_loader_test, n_data_test, _ = get_data_loader(args, subset="test_new")
+    #     all_features_test, _ = calcAllFeature(args, model, data_loader_test, n_data_test, recalc_feature=True)
+    #     all_features = np.concatenate((all_features, all_features_test), axis=0)
+    #     pcaVisualize(args, all_features, k_means_model, sub_dataset)
+    # else:
+    #     pcaVisualize(args, all_features, k_means_model)
 
     # [只处理有标注锚点的帧]滑动窗预测图像上所有patch的类别并保存可视化结果
     # print("Start predicting all patch labels...")

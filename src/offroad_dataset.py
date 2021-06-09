@@ -22,6 +22,11 @@ class OffRoadDataset(Dataset):
         self.channels = channels    # dim of input image channel (3: RGB, 5: RGBXY, 6: RGB+Background)
         self.patch_size = patch_size
         self.anchor_dict = np.load(os.path.join(self.root,"anchors_annotation.npy"), allow_pickle=True).item()
+        self.anchor_image = {}
+        # 提前把图像读入内存
+        for _f_id in sorted(self.anchor_dict.keys()):
+            img_file = os.path.join(self.root, str(_f_id)+'.png')
+            self.anchor_image[_f_id] = cv2.imread(img_file)
         self.anchor_list = []
         for _f_id in sorted(self.anchor_dict.keys()):
             for _ac_id in range(len(self.anchor_dict[_f_id])-1, -1, -1):
@@ -105,8 +110,9 @@ class OffRoadDataset(Dataset):
         '''
         time0 = time.time()
         frame_id = self.anchor_list[idx][0]  # anchor_list[i]: [frame_id, anchor_x, anchor_y, anchor_type]
-        img_file = os.path.join(self.root, str(frame_id)+'.png')
-        full_img = cv2.imread(img_file)
+        # img_file = os.path.join(self.root, str(frame_id)+'.png')
+        # full_img = cv2.imread(img_file)
+        full_img = self.anchor_image[frame_id]
         # 如果channel参数为5，则通道为RGBXY, 其中x,y通道值域[0,1]
         if (self.channels == 5):
             xy_img = np.zeros((full_img.shape[0], full_img.shape[1], 2), dtype=np.float32)

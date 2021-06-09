@@ -88,7 +88,57 @@ plt.rcParams['axes.unicode_minus']=False #用来正常显示负号
 # plt.bar(range(len(dat)-800), dat[800:])
 # plt.savefig('anchor_number_at_frames.png', dpi=600)
 
-
+######################### 画出哪些帧有锚点 #########################
+anchor_lab_mask_1 = [1,4,5,6,7,8]
+anchor_lab_mask_2 = [6,7,8]
+anchor_dict = np.load("../data/train_fine_anno/anchors_annotation.npy", allow_pickle=True).item()
+dat = np.zeros(5030)
+dat1 = np.zeros(5030)
+dat2 = np.zeros(5030)
+bar_color = ['g'] * 5030
+bar_color1 = ['b'] * 5030
+bar_color2 = ['r'] * 5030
+for _f_id in sorted(anchor_dict.keys()):
+    dat[_f_id] = 3
+    for _ac_id in range(len(anchor_dict[_f_id])-1, -1, -1):
+        if anchor_dict[_f_id][_ac_id][2] in anchor_lab_mask_2:
+            del anchor_dict[_f_id][_ac_id]
+    # 判断一下，如果_f_id帧只剩下一种类型的锚点或者没有锚点，就丢弃这一帧
+    if len(anchor_dict[_f_id]) == 0:
+        print('Discard frame {} for empty anchor dict\n'.format(_f_id))
+        del anchor_dict[_f_id]
+        continue
+    if min(np.array(anchor_dict[_f_id])[:,2]) == max(np.array(anchor_dict[_f_id])[:,2]):
+        print('Discard frame {} which only has one type anchors {}\n'.format(_f_id, anchor_dict[_f_id][0][2]))
+        del anchor_dict[_f_id]
+        continue
+for _f_id in sorted(anchor_dict.keys()):
+    dat2[_f_id] = 2
+    for _ac_id in range(len(anchor_dict[_f_id])-1, -1, -1):
+        if anchor_dict[_f_id][_ac_id][2] in anchor_lab_mask_1:
+            del anchor_dict[_f_id][_ac_id]
+    # 判断一下，如果_f_id帧只剩下一种类型的锚点或者没有锚点，就丢弃这一帧
+    if len(anchor_dict[_f_id]) == 0:
+        print('Discard frame {} for empty anchor dict\n'.format(_f_id))
+        del anchor_dict[_f_id]
+        continue
+    if min(np.array(anchor_dict[_f_id])[:,2]) == max(np.array(anchor_dict[_f_id])[:,2]):
+        print('Discard frame {} which only has one type anchors {}\n'.format(_f_id, anchor_dict[_f_id][0][2]))
+        del anchor_dict[_f_id]
+        continue
+for _f_id in sorted(anchor_dict.keys()):
+    dat1[_f_id] = 1
+plt.figure(figsize=(30, 5))
+plt.bar(range(5030), dat1, width=8, color=bar_color1)
+plt.savefig('anchor_location(mask145678).png', dpi=600)
+plt.bar(range(5030), dat2, width=8, color=bar_color2)
+plt.bar(range(5030), dat1, width=8, color=bar_color1)
+plt.savefig('anchor_location(mask678).png', dpi=600)
+plt.bar(range(5030), dat, width=8, color=bar_color)
+plt.bar(range(5030), dat2, width=8, color=bar_color2)
+plt.bar(range(5030), dat1, width=8, color=bar_color1)
+plt.savefig('anchor_location(mask_null).png', dpi=600)
+gb = 1
 
 
 
