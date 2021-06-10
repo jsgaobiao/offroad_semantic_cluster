@@ -5,7 +5,7 @@ LastEditTime: 2021-01-16 22:11:46
 Description: 根据对比学习学到的特征距离进行K-means聚类，并且根据K-means结果预测patch的语义类别，绘制到图像上
 FilePath: /offroad_semantic_cluster/src/patch_cluster.py
 '''
-
+from numba import jit
 from sklearn.cluster import KMeans
 from sklearn_extra.cluster import KMedoids
 import numpy as np
@@ -157,6 +157,7 @@ def calcAllFeature(args, model, data_loader, n_data, recalc_feature=True):
             np.save(os.path.join(args.result_path, "all_patch_features_type.npy"), all_features_type)
     return all_features, all_features_type
 
+@jit
 def getPatchXY(_img, _x, _y, anchor_width):
     ''' 
         从图像img中获取中心坐标为(_x, _y)的patch左上右下角坐标 
@@ -280,6 +281,51 @@ def predict_all_patch(args, data_loader, model, k_means_model):
             else:
                 continue
 
+@jit
+def data_transform_by_numba(dat):
+    mean = np.array([0.5200442, 0.5257094, 0.517397])
+    std = np.array([0.335111, 0.33463535, 0.33491987])
+    # Resize
+    dat = cv2.resize(dat, (224, 224))
+    # Converts [0,255] to [0.0,1.0]
+    dat = dat.astype(np.float32) / 255.0
+    # change [H,W,C] to [C,H,W]
+    dat = dat.transpose(2,0,1)
+    # Normailize
+    for i in range(len(mean)):
+        dat[i,:,:] = (dat[i,:,:] - mean[i]) / std[i]
+    return dat
+
+@jit
+def sliding_window_by_numba(full_img, in_channel, background):
+    patch_size = 64
+    pred_res = 25
+    full_img_H = 1088
+    full_img_W = 1920
+    batch_cnt = math.ceil((full_img_H-pred_res//2-1 - full_img_H//2) / pred_res) * math.ceil((full_img_W-pred_res//2-1 - pred_res//2) / pred_res)
+    _patch_batch_by_numba = np.zeros((batch_cnt, in_channel, 224, 224))
+    i_batch = np.zeros(batch_cnt)
+    j_batch = np.zeros(batch_cnt)
+    idx = 0
+    for i in range(full_img_H//2, full_img_H-pred_res//2, pred_res):
+        for j in range(pred_res//2, full_img_W-pred_res//2, pred_res):
+            p_left_top, p_right_down = getPatchXY(full_img, j, i, patch_size)
+            # # 滑动窗得到的小patch
+            _patch = full_img[p_left_top[1]:p_right_down[1], p_left_top[0]:p_right_down[0]]
+            _patch = data_transform_by_numba(_patch)
+            # 如果channel==6 前背景patch
+            if in_channel==6:
+                p_left_top, p_right_down = getPatchXY(full_img, j, i, background)
+                _bg_patch = full_img[p_left_top[1]:p_right_down[1], p_left_top[0]:p_right_down[0]]
+                _bg_patch = data_transform_by_numba(_bg_patch)
+                _patch = np.concatenate((_patch, _bg_patch), 0)
+            # 对patch进行transform
+            _patch_batch_by_numba[idx] = _patch
+            i_batch[idx] = i
+            j_batch[idx] = j
+            idx += 1
+    return _patch_batch_by_numba.astype(np.float32), i_batch.astype(np.int32), j_batch.astype(np.int32)
+
 def predict_vidoe(args, model, k_means_model):
     '''
         [处理所有视频帧] 预测视频中每一帧的分割结果
@@ -309,77 +355,45 @@ def predict_vidoe(args, model, k_means_model):
                 print('Video end!')
                 break
             frame_id = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
-            if (frame_id % 2 != 0):
-                continue
+            # if (frame_id % 2 != 0):
+            #     continue
             # 如果有结果就不重复计算了
-            if os.path.isfile(os.path.join(args.result_path.replace("cluster_results", "video_pred"), str(frame_id)+"_pred_all.mask.png")):
+            if os.path.isfile(os.path.join(args.result_path.replace("cluster_results", "features"), str(frame_id)+".npy")):
                 continue
             _patch_mask = np.zeros((full_img.shape), dtype=np.uint8)
-            batch_cnt = 0   # 将args.batch_pred个patch放入一个batch中再计算特征
-            _patch_batch = []
-            i_batch = []
-            j_batch = []
             features_for_save = np.array([])
             time0 = time.time()
-            # 滑动窗处理所有的patch，先不考虑天空，只滑动下半张图片
-            for i in range(full_img.shape[0]//2, full_img.shape[0]-pred_res//2, pred_res):
-                for j in range(pred_res//2, full_img.shape[1]-pred_res//2, pred_res):
-                    p_left_top, p_right_down = getPatchXY(full_img, j, i, patch_size)
-                    # 滑动窗得到的小patch
-                    _patch = full_img[p_left_top[1]:p_right_down[1], p_left_top[0]:p_right_down[0]]
-                    _patch = data_transform(_patch)
-                    # 如果channel==6 前背景patch
-                    if args.in_channel==6:
-                        p_left_top, p_right_down = getPatchXY(full_img, j, i, args.background)
-                        _bg_patch = full_img[p_left_top[1]:p_right_down[1], p_left_top[0]:p_right_down[0]]
-                        _bg_patch = data_transform(_bg_patch)
-                        _patch = torch.cat((_patch, _bg_patch), 0)
-                    # 对patch进行transform
-                    _patch_batch.append(_patch.cpu().numpy())
-                    i_batch.append(i)
-                    j_batch.append(j)
-                    batch_cnt += 1
-                    # 如果凑够了args.batch_pred个patch，则一起计算特征
-                    if (batch_cnt % args.batch_pred == 0) or (i+pred_res >= full_img.shape[0]-pred_res//2 and j+pred_res >= full_img.shape[1]-pred_res//2):
-                        # if (i+pred_res >= full_img.shape[0]-pred_res//2 and j+pred_res >= full_img.shape[1]-pred_res//2):
-                            # print('last batch:{}'.format(batch_cnt))
-                        timea = time.time()
-                        # inputs shape --> [batch_size, (1), channel, H, W]
-                        inputs = torch.Tensor(_patch_batch)
-                        timeb = time.time()
-                        inputs_shape = list(inputs.size())
-                        timec = time.time()
-                        # inputs shape --> [batch_size*(1), channel, H, W]
-                        inputs = inputs.view((inputs_shape[0], inputs_shape[1], inputs_shape[2], inputs_shape[3]))
-                        timed = time.time()
-                        inputs = inputs.float()
-                        timee = time.time()
-                        if torch.cuda.is_available():
-                            inputs = inputs.cuda()
-                        timef = time.time()
-                        # ===================forward=====================
-                        _patch_feature_batch = model(inputs)     # [batch_size*(1), feature_dim]
-                        time1 = time.time()
-                        print("time:", timea-time0, timeb-timea, timec-timeb, timed-timec, timee-timed, timef-timee, time1-timef)
-                        # 逐个预测类别并可视化
-                        for _patch_feature, _i, _j in zip(_patch_feature_batch, i_batch, j_batch):
-                            if (not args.dont_write_pred_png):
-                                _patch_label = k_means_model.predict(np.expand_dims(_patch_feature.cpu().numpy().astype(np.float), axis=0))
-                                # 将patch分类得到的类别标签绘制到图像上（只绘制i,j为中心，pred_res*pred_res的方块）
-                                _patch_mask = cv2.rectangle(_patch_mask, (_j-pred_res,_i-pred_res), (_j+pred_res,_i+pred_res), anchor_color[_patch_label[0]], thickness=-1) #thickness=-1 表示矩形框内颜色填充
-                            # 将计算好的patch对应的feature保存到文件里
-                            _patch_ij_feature = np.expand_dims(np.concatenate(([_i], [_j], _patch_feature.cpu().numpy())), axis=0)
-                            if features_for_save.shape[0] == 0:
-                                features_for_save = _patch_ij_feature
-                            else:
-                                features_for_save = np.concatenate((features_for_save, _patch_ij_feature), axis=0)
-                        # 清空上一个batch
-                        batch_cnt = 0
-                        _patch_batch = []
-                        i_batch = []
-                        j_batch = []
-                        time2 = time.time()
-                        print("time cost: {:.3f}".format(time2-time1))
+
+            ''' -------------------使用numba加速滑动窗过程，直接返回待预测的patch list --------------------'''
+            assert full_img.shape[0]==1088 and full_img.shape[1]==1920
+            _patch_batch_of_numba, i_batch, j_batch = sliding_window_by_numba(full_img, args.in_channel, args.background)
+            time_numba = time.time()
+            inputs = torch.from_numpy(_patch_batch_of_numba)
+            time_numba1 = time.time()
+            inputs_shape = list(inputs.size())
+            # inputs shape --> [batch_size*(1), channel, H, W]
+            inputs = inputs.view((inputs_shape[0], inputs_shape[1], inputs_shape[2], inputs_shape[3]))
+            if torch.cuda.is_available():
+                inputs = inputs.cuda()
+            time_numba2 = time.time()
+            # ===================forward=====================
+            _patch_feature_batch = model(inputs)     # [batch_size*(1), feature_dim]
+            time_numba3 = time.time()
+            print("time cost:  numba", time_numba - time0, time_numba1-time_numba, time_numba2-time_numba1, time_numba3-time_numba2)
+            # 逐个预测类别并可视化
+            for _patch_feature, _i, _j in zip(_patch_feature_batch, i_batch, j_batch):
+                if (not args.dont_write_pred_png):
+                    _patch_label = k_means_model.predict(np.expand_dims(_patch_feature.cpu().numpy().astype(np.float), axis=0))
+                    # 将patch分类得到的类别标签绘制到图像上（只绘制i,j为中心，pred_res*pred_res的方块）
+                    _patch_mask = cv2.rectangle(_patch_mask, (_j-pred_res,_i-pred_res), (_j+pred_res,_i+pred_res), anchor_color[_patch_label[0]], thickness=-1) #thickness=-1 表示矩形框内颜色填充
+                # 将计算好的patch对应的feature保存到文件里
+                _patch_ij_feature = np.expand_dims(np.concatenate(([_i], [_j], _patch_feature.cpu().numpy())), axis=0)
+                if features_for_save.shape[0] == 0:
+                    features_for_save = _patch_ij_feature
+                else:
+                    features_for_save = np.concatenate((features_for_save, _patch_ij_feature), axis=0)            
+            ''' -------------------使用numba加速滑动窗过程，直接返回待预测的patch list --------------------'''
+
             # alpha 为第一张图片的透明度，beta 为第二张图片的透明度 cv2.addWeighted 将原始图片与 mask 融合
             if (not args.dont_write_pred_png):
                 full_img = cv2.addWeighted(full_img, 1, _patch_mask, 0.2, 0)
