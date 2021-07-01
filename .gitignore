@@ -16,3 +16,5 @@ data/*/
 *.csv
 *.avi
 *.mp4
+*.png
+*.txt

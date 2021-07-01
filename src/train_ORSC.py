@@ -46,7 +46,7 @@ def parse_option():
     parser.add_argument('--save_freq', type=int, default=50, help='save frequency')
     parser.add_argument('--batch_size', type=int, default=128, help='batch_size')
     parser.add_argument('--num_workers', type=int, default=12, help='num of workers to use')
-    parser.add_argument('--epochs', type=int, default=800, help='number of training epochs')
+    parser.add_argument('--epochs', type=int, default=1000, help='number of training epochs')
     parser.add_argument('--background', type=int, default=192, help='size of background patch')
     parser.add_argument('--patch_size', type=int, default=64, help='size of patch')
 
@@ -74,6 +74,7 @@ def parse_option():
     parser.add_argument('--nce_m', type=float, default=0.5, help='the momentum for dynamically updating the memory.')
     parser.add_argument('--in_channel', type=int, default=3, help='dim of input image channel (3: RGB, 5: RGBXY)')
     parser.add_argument('--feat_dim', type=int, default=128, help='dim of feat for inner product')
+    parser.add_argument('--finetune', action='store_true', help='freeze conv layers, only train fc layers')
 
     # dataset
     # parser.add_argument('--dataset', type=str, default='imagenet', choices=['imagenet100', 'imagenet'])
@@ -137,7 +138,11 @@ def parse_option():
     if not os.path.isdir(opt.data_folder):
         raise ValueError('data path not exist: {}'.format(opt.data_folder))
 
-    opt.anchor_lab_mask = [int(item) for item in opt.anchor_lab_mask.split(',')]
+    if len(opt.anchor_lab_mask) > 0:
+        opt.anchor_lab_mask = [int(item) for item in opt.anchor_lab_mask.split(',')]
+        print("\nmasked anchor label: {}\n".format(opt.anchor_lab_mask))
+    else:
+        opt.anchor_lab_mask = []
     print("\nmasked anchor label: {}\n".format(opt.anchor_lab_mask))
     
     return opt
@@ -215,7 +220,7 @@ def set_model(args, n_data):
 
 def set_optimizer(args, model):
     # return optimizer
-    optimizer = torch.optim.SGD(model.parameters(),
+    optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad, model.parameters()),
                                 lr=args.learning_rate,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
@@ -323,6 +328,13 @@ def main():
                 amp.load_state_dict(checkpoint['amp'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
+            # if --finetune, freeze conv layers
+            if args.finetune:
+                for name, param in model.encoder.module.sample_net.named_parameters():
+                    if 'conv' in name:
+                        print('freeze', name)
+                        param.requires_grad = False
+
             del checkpoint
             torch.cuda.empty_cache()
         else:

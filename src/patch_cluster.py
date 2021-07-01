@@ -35,7 +35,7 @@ def parse_option():
     parser.add_argument('--model_path', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
     parser.add_argument('--result_path', type=str, default="results", help='path to save result')
     parser.add_argument('--batch_size', type=int, default=1, help='batch_size')
-    parser.add_argument('--num_workers', type=int, default=8, help='num of workers to use')
+    parser.add_argument('--num_workers', type=int, default=12, help='num of workers to use')
     parser.add_argument('--note', type=str, default=None, help='comments to current train settings')
     parser.add_argument('--softmax', action='store_true', help='using softmax contrastive loss rather than NCE')
     parser.add_argument('--nce_k', type=int, default=1, help='负样本数量')
@@ -59,9 +59,11 @@ def parse_option():
         os.makedirs(opt.result_path)
     if not os.path.isdir(opt.result_path.replace("cluster_results", "features")):
         os.makedirs(opt.result_path.replace("cluster_results", "features"))
-    
-    opt.anchor_lab_mask = [int(item) for item in opt.anchor_lab_mask.split(',')]
-    print("\nmasked anchor label: {}\n".format(opt.anchor_lab_mask))
+    if len(opt.anchor_lab_mask) > 0:
+        opt.anchor_lab_mask = [int(item) for item in opt.anchor_lab_mask.split(',')]
+        print("\nmasked anchor label: {}\n".format(opt.anchor_lab_mask))
+    else:
+        opt.anchor_lab_mask = []
 
     # 将使用的配置表保存到文件中
     args_to_save = parser.parse_args()
@@ -186,7 +188,7 @@ def predict_patch(args, data_loader, k_means_model, cluster_precision):
         可视化聚类后的锚点，并将它们绘制在图像上 (同时绘制锚点标注的结果、聚类标签的结果和聚类吻合度)
     '''
     anchor_width = 64
-    anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,255,0), (255, 191, 0), (0, 191, 255), (128, 0, 255)]
+    anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,128,0), (31,102,156), (220,220,220), (80,127,255), (140,230,240), (127,255,0), (158,168,3), (255,144,30), (214,112,218)]
  
     last_frame_id = -1
     for idx, (anchor, _, _, frame_id, _full_img, _anchor_xy, _, _, anchor_type) in enumerate(data_loader):
@@ -230,7 +232,7 @@ def predict_all_patch(args, data_loader, model, k_means_model):
         transforms.ToTensor(),
         transforms.Normalize(mean=mean, std=std),
     ])
-    anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,255,0), (255, 191, 0), (0, 191, 255), (128, 0, 255)]
+    anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,128,0), (31,102,156), (220,220,220), (80,127,255), (140,230,240), (127,255,0), (158,168,3), (255,144,30), (214,112,218)]
     last_frame_id = -1
     tot_frame = 0
     with torch.no_grad():
@@ -366,7 +368,18 @@ def predict_vidoe(args, model, k_means_model):
 
             ''' -------------------使用numba加速滑动窗过程，直接返回待预测的patch list --------------------'''
             assert full_img.shape[0]==1088 and full_img.shape[1]==1920
+            # 判断是否有已经计算好的滑动窗patch list
+            # if os.path.isfile(os.path.join(args.pre_video.split('.')[0], str(frame_id)+"_patch_batch.npz")):
+            #     npzdata = np.load(os.path.join(args.pre_video.split('.')[0], str(frame_id)+"_patch_batch.npz"))
+            #     _patch_batch_of_numba = npzdata['_patch_batch_of_numba']
+            #     i_batch = npzdata['i_batch']
+            #     j_batch = npzdata['j_batch']
+            # else:
             _patch_batch_of_numba, i_batch, j_batch = sliding_window_by_numba(full_img, args.in_channel, args.background)
+                # np.savez_compressed(os.path.join(args.pre_video.split('.')[0], str(frame_id)+"_patch_batch.npz"), 
+                #                     _patch_batch_of_numba=_patch_batch_of_numba, 
+                #                     i_batch=i_batch, 
+                #                     j_batch=j_batch)
             time_numba = time.time()
             inputs = torch.from_numpy(_patch_batch_of_numba)
             time_numba1 = time.time()
@@ -379,7 +392,6 @@ def predict_vidoe(args, model, k_means_model):
             # ===================forward=====================
             _patch_feature_batch = model(inputs)     # [batch_size*(1), feature_dim]
             time_numba3 = time.time()
-            print("time cost:  numba", time_numba - time0, time_numba1-time_numba, time_numba2-time_numba1, time_numba3-time_numba2)
             # 逐个预测类别并可视化
             for _patch_feature, _i, _j in zip(_patch_feature_batch, i_batch, j_batch):
                 if (not args.dont_write_pred_png):
@@ -391,7 +403,9 @@ def predict_vidoe(args, model, k_means_model):
                 if features_for_save.shape[0] == 0:
                     features_for_save = _patch_ij_feature
                 else:
-                    features_for_save = np.concatenate((features_for_save, _patch_ij_feature), axis=0)            
+                    features_for_save = np.concatenate((features_for_save, _patch_ij_feature), axis=0)      
+            time_numba4 = time.time()  
+            print("fram {} time cost:  numba {:.3f}  {:.3f}  {:.3f}  {:.3f}  {:.3f}".format(frame_id, time_numba - time0, time_numba1-time_numba, time_numba2-time_numba1, time_numba3-time_numba2, time_numba4-time_numba3))    
             ''' -------------------使用numba加速滑动窗过程，直接返回待预测的patch list --------------------'''
 
             # alpha 为第一张图片的透明度，beta 为第二张图片的透明度 cv2.addWeighted 将原始图片与 mask 融合
@@ -512,7 +526,7 @@ def evalClusterResult(args, n_data, data_loader, k_means_model, cluster_method):
     cluster_precision_sum = 0
     error_of_same_type = np.zeros(20)    # 估算一下每个类别锚点预测的错误数(同anchor type被预测为不同类别)
     error_of_diff_type = np.zeros(20)    # 估算一下每个类别锚点预测的错误数(不同anchor type被预测为相同类别)
-    confuse_mat = np.zeros((10, 7))        # anchor type到聚类类别的预测矩阵
+    confuse_mat = np.zeros((20, 7))        # anchor type到聚类类别的预测矩阵
     frame_cnt = 0
     for idx, (anchor, _, _, frame_id, _full_img, _anchor_xy, _, _, anchor_type) in enumerate(data_loader):
         # 需要将同一frame图片上的所有锚点的聚类标签取下来，再计算约束吻合度
@@ -621,7 +635,7 @@ def pcaVisualize(args, all_features, k_means_model, sub_dataset=None):
     plt.savefig(os.path.join(args.result_path, 'cluster_vis{}.png'.format(args.kmeans)), dpi=600)
 
 def main():# 供直接运行本脚本
-
+    time_start = time.time()
     # parse argument
     args = parse_option()
 
@@ -653,11 +667,11 @@ def main():# 供直接运行本脚本
         print("K-Medoids cluster over!")
     
     # 计算聚类结果和锚点标注的吻合度
-    # cluster_precision = evalClusterResult(args, n_data, data_loader, k_means_model, cluster_method)
+    cluster_precision = evalClusterResult(args, n_data, data_loader, k_means_model, cluster_method)
 
     # 预测每个anchor(patch)的类别并保存可视化结果
-    # print("Start predicting anchor labels...")
-    # predict_patch(args, data_loader, k_means_model, cluster_precision)
+    print("Start predicting anchor labels...")
+    predict_patch(args, data_loader, k_means_model, cluster_precision)
 
     # PCA可视化类别簇
     # print("Start PCA visualization...")
@@ -682,6 +696,9 @@ def main():# 供直接运行本脚本
     if (args.pre_video):
         print("Start predicting segmentation of video {}".format(args.pre_video))
         predict_vidoe(args, model, k_means_model)
+
+    time_end = time.time()
+    print("total time cost {:.3f} h".format((time_end-time_start)/3600.0))
 
 if __name__ == '__main__':
     main()

@@ -28,6 +28,7 @@ pred_res = 25    # 分类的分辨率：每个patch中间pred_res*pred_res的方
 anchor_color = [(0,0,255), (0,255,0), (255,0,0), (0,255,255), (255,0,255), (255,255,0), (220,220,220), (31,102,156), (80,127,255), (140,230,240), (127,255,0), (158,168,3), (255,144,30), (214,112,218)]
 anchor_marker = ['.','.','.','.','.','.','x','x','s','s','s','s','*','*']
 anchor_label = [u"0:路",u"1:石头",u"2:植物",u"3:路边",u"4:建筑",u"5:碎石",u"6:水泥堆",u"7:木材",u"8:草泥/落叶","9:"]
+fine_anchor_label = [u"0:平坦土路",u"1:植物",u"2:石头",u"3:不平/泥泞土路",u"4:稀疏的草坪",u"5:石灰路",u"6:土堆/土坡（不能通行）",u"7:水泥路/过曝路",u"8:裂缝/路中间凸起",u"9:建筑",u"10:石子路",u"11:落叶",u"12:木头"]
 plt.rcParams['font.sans-serif']=['SimHei'] #用来正常显示中文标签
 plt.rcParams['axes.unicode_minus']=False #用来正常显示负号
 #有中文出现的情况，需要u'内容'
@@ -77,7 +78,12 @@ def parse_option():
     if not os.path.isdir(opt.result_path.replace("cluster_results", "risk_coverage")):
         os.makedirs(opt.result_path.replace("cluster_results", "risk_coverage"))
     
-    opt.anchor_lab_mask = [int(item) for item in opt.anchor_lab_mask.split(',')]
+    if len(opt.anchor_lab_mask) > 0:
+        opt.anchor_lab_mask = [int(item) for item in opt.anchor_lab_mask.split(',')]
+        print("\nmasked anchor label: {}\n".format(opt.anchor_lab_mask))
+    else:
+        opt.anchor_lab_mask = []
+
     print("\nmasked anchor label: {}\n".format(opt.anchor_lab_mask))
 
     # 将使用的配置表保存到文件中
@@ -358,67 +364,70 @@ def evalUncertaintyOfCluster(args, cluster_method, cluster_model, anchor_feature
     ''' 按类别统计锚点的entropy(uncertainty)分布折线图'''
     hex_c = []
     for c in anchor_color: hex_c.append('#%02x%02x%02x' % (c[2], c[1], c[0]))
-    fig, ax = plt.subplots(figsize=(8, 6))
-    num_bins = 10
-    min_unc = np.array(entropy_list_euc).min()
-    max_unc = 2.5 #np.array(entropy_list_euc).max()
-    x_axis = np.arange(min_unc, max_unc, (max_unc-min_unc)/num_bins)
-    # 各类别锚点的不确定性：在不同区间不确定性的集合中的占比(以直方图x轴区间为单位进行统计)
-    stack_uncertainty = np.zeros((int(type_of_anchor_feature_list.max()+1), num_bins))
-    # 各类别锚点的不确定性：在本类别中的占比
-    accumulate_uncertainty_rate = np.zeros((int(type_of_anchor_feature_list.max()+1), num_bins))
-    for i in range(len(type_of_anchor_feature_list)):
-        # 遍历所有uncertainty的值，统计各区间段的分布
-        val = entropy_list_euc[i]
-        anchor_type = int(type_of_anchor_feature_list[i])
-        _block = min(int((val - min_unc) / (max_unc - min_unc + 1e-5) * num_bins), num_bins-1)
-        stack_uncertainty[anchor_type][_block] += 1
-    # 绘制曲线图
-    for i in range(stack_uncertainty.shape[0]):
-        for j in range(stack_uncertainty.shape[1]):
-            accumulate_uncertainty_rate[i][j] = np.sum(stack_uncertainty[i][:j]) / np.sum(stack_uncertainty[i])
-        ax.plot(x_axis, accumulate_uncertainty_rate[i], color=hex_c[i], label=anchor_label[i])
-    ax.legend(bbox_to_anchor=(-0.2, 1), loc='upper left')
-    ax.set_xlim([0, 2.5])
-    ax.set_title("Euclidean entropy of different anchor types")
-    ax.set_xlabel("euclidean entropy")
-    ax.set_ylabel("percent")
-    fig.savefig(os.path.join(args.result_path.replace("cluster_results", "uncertainty_hist"), 'anchor_euclidean_entropy_by_class__{}_{}.png'.format(cluster_method, args.kmeans)), dpi=600)
-    plt.cla()
-    plt.close("all")
+    hex_c = np.array(hex_c)
+    # fig, ax = plt.subplots(figsize=(8, 6))
+    # num_bins = 10
+    # min_unc = np.array(entropy_list_euc).min()
+    # max_unc = 2.5 #np.array(entropy_list_euc).max()
+    # x_axis = np.arange(min_unc, max_unc, (max_unc-min_unc)/num_bins)
+    # # 各类别锚点的不确定性：在不同区间不确定性的集合中的占比(以直方图x轴区间为单位进行统计)
+    # stack_uncertainty = np.zeros((int(type_of_anchor_feature_list.max()+1), num_bins))
+    # # 各类别锚点的不确定性：在本类别中的占比
+    # accumulate_uncertainty_rate = np.zeros((int(type_of_anchor_feature_list.max()+1), num_bins))
+    # for i in range(len(type_of_anchor_feature_list)):
+    #     # 遍历所有uncertainty的值，统计各区间段的分布
+    #     val = entropy_list_euc[i]
+    #     anchor_type = int(type_of_anchor_feature_list[i])
+    #     _block = min(int((val - min_unc) / (max_unc - min_unc + 1e-5) * num_bins), num_bins-1)
+    #     stack_uncertainty[anchor_type][_block] += 1
+    # # 绘制曲线图
+    # for i in range(stack_uncertainty.shape[0]):
+    #     for j in range(stack_uncertainty.shape[1]):
+    #         accumulate_uncertainty_rate[i][j] = np.sum(stack_uncertainty[i][:j]) / np.sum(stack_uncertainty[i])
+    #     ax.plot(x_axis, accumulate_uncertainty_rate[i], color=hex_c[i], label=anchor_label[i])
+    # ax.legend(bbox_to_anchor=(-0.2, 1), loc='upper left')
+    # ax.set_xlim([0, 2.5])
+    # ax.set_title("Euclidean entropy of different anchor types")
+    # ax.set_xlabel("euclidean entropy")
+    # ax.set_ylabel("percent")
+    # fig.savefig(os.path.join(args.result_path.replace("cluster_results", "uncertainty_hist"), 'anchor_euclidean_entropy_by_class__{}_{}.png'.format(cluster_method, args.kmeans)), dpi=600)
+    # plt.cla()
+    # plt.close("all")
 
     ''' 所有样本整体的entropy分布直方图 (选用RBF distance)'''
-    # fig, ax = plt.subplots(figsize=(8, 6))
-    # ax.hist(entropy_list_euc, bins=50)
-    # ax.set_xlim([0, 2.5])
-    # ax.set_title("Euclidean entropy distribution of all anchors")
-    # ax.set_xlabel("euclidean entropy")
-    # ax.set_ylabel("anchor samples")
-    # fig.savefig(os.path.join(args.result_path.replace("cluster_results", "uncertainty_hist"), 'anchor_euclidean_entropy__{}_{}.png'.format(cluster_method, args.kmeans)), dpi=600)
-    fig1, ax1 = plt.subplots(figsize=(8, 6))
-    ax1.hist(entropy_list_rbf, bins=50)
-    ax1.set_title("RBF entropy distribution of all anchors")
-    ax1.set_xlabel("RBF entropy")
-    ax1.set_ylabel("anchor samples")
-    fig1.savefig(os.path.join(args.result_path.replace("cluster_results", "uncertainty_hist"), 'anchor_RBF_entropy__{}_{}.png'.format(cluster_method, args.kmeans)), dpi=600)
-    plt.cla()
-    plt.close("all")
+    # # fig, ax = plt.subplots(figsize=(8, 6))
+    # # ax.hist(entropy_list_euc, bins=50)
+    # # ax.set_xlim([0, 2.5])
+    # # ax.set_title("Euclidean entropy distribution of all anchors")
+    # # ax.set_xlabel("euclidean entropy")
+    # # ax.set_ylabel("anchor samples")
+    # # fig.savefig(os.path.join(args.result_path.replace("cluster_results", "uncertainty_hist"), 'anchor_euclidean_entropy__{}_{}.png'.format(cluster_method, args.kmeans)), dpi=600)
+    # fig1, ax1 = plt.subplots(figsize=(8, 6))
+    # ax1.hist(entropy_list_rbf, bins=50)
+    # ax1.set_title("RBF entropy distribution of all anchors")
+    # ax1.set_xlabel("RBF entropy")
+    # ax1.set_ylabel("anchor samples")
+    # fig1.savefig(os.path.join(args.result_path.replace("cluster_results", "uncertainty_hist"), 'anchor_RBF_entropy__{}_{}.png'.format(cluster_method, args.kmeans)), dpi=600)
+    # plt.cla()
+    # plt.close("all")
 
     ''' 计算融合Loss曲线（所有样本的entropy+聚类数量惩罚，聚类数量太多要惩罚）'''
-    prob_cluster = np.zeros(args.kmeans)    # 每个类别出现的概率（各类别数量占比）
-    for k in range(args.kmeans):
-        prob_cluster[k] = np.count_nonzero(cluster_model.labels_ == k) / cluster_model.labels_.shape[0]
-    loss_cluster = my_entropy(prob_cluster)
-    print("loss_cluster:", loss_cluster)
+    # prob_cluster = np.zeros(args.kmeans)    # 每个类别出现的概率（各类别数量占比）
+    # for k in range(args.kmeans):
+    #     prob_cluster[k] = np.count_nonzero(cluster_model.labels_ == k) / cluster_model.labels_.shape[0]
+    # loss_cluster = my_entropy(prob_cluster)
+    # print("loss_cluster:", loss_cluster)
 
     ''' 画出Risk_Coverage曲线，Risk使用到聚类中心的RBF_Prob计算'''
     # risk_coverage: [1-RBF, 聚类类别, anchor类别]
     risk_coverage = sorted(risk_coverage, key=lambda x:x[0])    # 按照response排序，逐步增加coverage并绘risk_coverage图
     risk_coverage_curve = []
     risk_coverage_curve_of_class = []
-    cur_risk_coverage_of_class = [0]*9 # int(type_of_anchor_feature_list.max()+1)
-    num_coverage_curve_of_class = []    # 统计样本数量随coverage的变化
-    cur_num_coverage_of_class = [1e-6]*15
+    cur_risk_coverage_of_class = [0]*15 # int(type_of_anchor_feature_list.max()+1)
+    cluster_num_coverage_curve_of_class = []    # 统计样本数量随coverage的变化
+    cur_cluster_num_coverage_of_class = [1e-6]*15
+    gt_num_coverage_curve_of_class = []    # 统计真值的样本数量随coverage的变化
+    cur_gt_num_coverage_of_class = [1e-6]*15
     cluster_risk_coverage_curve_of_class = []    # 聚类类别下的risk分布
     cur_cluster_risk_coverage_of_class = [0]*15
     cur_coverage_step = 1.0 / coverage_bins
@@ -428,12 +437,14 @@ def evalUncertaintyOfCluster(args, cluster_method, cluster_model, anchor_feature
         cur_coverage = (i+1) / len(risk_coverage)
         tot_risk += np.linalg.norm(risk_coverage[i][0])
         cur_risk_coverage_of_class[int(risk_coverage[i][2])] += np.linalg.norm(risk_coverage[i][0])
-        cur_num_coverage_of_class[int(risk_coverage[i][1])] += 1
+        cur_cluster_num_coverage_of_class[int(risk_coverage[i][1])] += 1
+        cur_gt_num_coverage_of_class[int(risk_coverage[i][2])] += 1
         cur_cluster_risk_coverage_of_class[int(risk_coverage[i][1])] += np.linalg.norm(risk_coverage[i][0])
         if cur_coverage >= cur_coverage_step or i == len(risk_coverage)-1:
             risk_coverage_curve.append((tot_risk / len(risk_coverage)) / cur_coverage)
             risk_coverage_curve_of_class.append(np.array(cur_risk_coverage_of_class) / len(risk_coverage) / cur_coverage)
-            num_coverage_curve_of_class.append(np.array(cur_num_coverage_of_class))
+            cluster_num_coverage_curve_of_class.append(np.array(cur_cluster_num_coverage_of_class))
+            gt_num_coverage_curve_of_class.append(np.array(cur_gt_num_coverage_of_class))
             cluster_risk_coverage_curve_of_class.append(np.array(cur_cluster_risk_coverage_of_class) / len(risk_coverage) / cur_coverage)
             cur_coverage_step += 1.0 / coverage_bins
         # np.eye构造one-hot向量
@@ -442,61 +453,79 @@ def evalUncertaintyOfCluster(args, cluster_method, cluster_model, anchor_feature
 
     # 所有聚类数量的曲线放到一张图上画
     risk_coverage_curve_of_all_K.append(risk_coverage_curve)
+
+    cluster_num_coverage_curve_of_class = np.array(cluster_num_coverage_curve_of_class)
+    gt_num_coverage_curve_of_class = np.array(gt_num_coverage_curve_of_class)
+    # 聚类的时候类别编号会随机变化，为了尽量统一可视化效果，根据每一类的样本数量排序来决定聚类编号的颜色顺序
+    cluster_id_rank = np.lexsort((-cluster_num_coverage_curve_of_class[-1,:].T, -cluster_num_coverage_curve_of_class[-1,:].T))
+
     # 绘制当前聚类数量下，各个类别的曲线(ax0绘制risk曲线，ax1绘制样本数量曲线)
     fig, ax = plt.subplots(2, 3, figsize=(14, 8))
     x_axis = np.arange(0, 1, 1.0 / coverage_bins)
+    # 真值的risk分布
     ax[0][0].plot(x_axis, risk_coverage_curve, c='k', linewidth=3)
     risk_coverage_curve_of_class = np.array(risk_coverage_curve_of_class)
     ax[0][0].stackplot(x_axis, risk_coverage_curve_of_class[:,0], risk_coverage_curve_of_class[:,1], risk_coverage_curve_of_class[:,2], risk_coverage_curve_of_class[:,3],
                          risk_coverage_curve_of_class[:,4], risk_coverage_curve_of_class[:,5], risk_coverage_curve_of_class[:,6], risk_coverage_curve_of_class[:,7],
-                         risk_coverage_curve_of_class[:,8], colors=hex_c[:9], labels=anchor_label[:9], alpha=0.8)
+                         risk_coverage_curve_of_class[:,8], risk_coverage_curve_of_class[:,9], risk_coverage_curve_of_class[:,10], risk_coverage_curve_of_class[:,11], 
+                         risk_coverage_curve_of_class[:,12], risk_coverage_curve_of_class[:,13], colors=hex_c[:13], labels=anchor_label[:13], alpha=0.8)
     ax[0][0].legend()
-    ax[0][0].set_xlabel("Coverage")
-    ax[0][0].set_ylabel("Risk coverage curve")
+    ax[0][0].set_xlabel("coverage")
+    ax[0][0].set_ylabel("risk")
+    # 真值的聚类的样本数量分布
+    ax[0][1].stackplot(x_axis, gt_num_coverage_curve_of_class[:,0], gt_num_coverage_curve_of_class[:,1], gt_num_coverage_curve_of_class[:,2], gt_num_coverage_curve_of_class[:,3],
+                         gt_num_coverage_curve_of_class[:,4], gt_num_coverage_curve_of_class[:,5], gt_num_coverage_curve_of_class[:,6], gt_num_coverage_curve_of_class[:,7],
+                         gt_num_coverage_curve_of_class[:,8], gt_num_coverage_curve_of_class[:,9], gt_num_coverage_curve_of_class[:,10], gt_num_coverage_curve_of_class[:,11], 
+                         gt_num_coverage_curve_of_class[:,12], gt_num_coverage_curve_of_class[:,13], colors=hex_c[:13], alpha=0.6)
+    ax[0][1].set_xlabel("coverage")
+    ax[0][1].set_ylabel("sample number")
+
+    # 聚类的risk分布
+    ax[1][0].plot(x_axis, risk_coverage_curve, c='k', linewidth=3)
     cluster_risk_coverage_curve_of_class = np.array(cluster_risk_coverage_curve_of_class)
-    ax[0][1].stackplot(x_axis, cluster_risk_coverage_curve_of_class[:,0], cluster_risk_coverage_curve_of_class[:,1], cluster_risk_coverage_curve_of_class[:,2], cluster_risk_coverage_curve_of_class[:,3],
-                         cluster_risk_coverage_curve_of_class[:,4], cluster_risk_coverage_curve_of_class[:,5], cluster_risk_coverage_curve_of_class[:,6], cluster_risk_coverage_curve_of_class[:,7],
-                         cluster_risk_coverage_curve_of_class[:,8], cluster_risk_coverage_curve_of_class[:,9], cluster_risk_coverage_curve_of_class[:,10], cluster_risk_coverage_curve_of_class[:,11], 
-                         cluster_risk_coverage_curve_of_class[:,12], cluster_risk_coverage_curve_of_class[:,13], alpha=0.65)
+    ax[1][0].stackplot(x_axis, cluster_risk_coverage_curve_of_class[:,cluster_id_rank[0]], cluster_risk_coverage_curve_of_class[:,cluster_id_rank[1]], cluster_risk_coverage_curve_of_class[:,cluster_id_rank[2]], cluster_risk_coverage_curve_of_class[:,cluster_id_rank[3]],
+                         cluster_risk_coverage_curve_of_class[:,cluster_id_rank[4]], cluster_risk_coverage_curve_of_class[:,cluster_id_rank[5]], cluster_risk_coverage_curve_of_class[:,cluster_id_rank[6]], cluster_risk_coverage_curve_of_class[:,cluster_id_rank[7]],
+                         cluster_risk_coverage_curve_of_class[:,cluster_id_rank[8]], cluster_risk_coverage_curve_of_class[:,cluster_id_rank[9]], cluster_risk_coverage_curve_of_class[:,cluster_id_rank[10]], cluster_risk_coverage_curve_of_class[:,cluster_id_rank[11]], 
+                         cluster_risk_coverage_curve_of_class[:,cluster_id_rank[12]], cluster_risk_coverage_curve_of_class[:,cluster_id_rank[13]], alpha=0.8)
     # ax[1].legend()
-    ax[0][1].set_xlabel("Coverage")
-    ax[0][1].set_ylabel("Clustered risk coverage curve")
-    num_coverage_curve_of_class = np.array(num_coverage_curve_of_class)
-    ax[0][2].stackplot(x_axis, num_coverage_curve_of_class[:,0], num_coverage_curve_of_class[:,1], num_coverage_curve_of_class[:,2], num_coverage_curve_of_class[:,3],
-                         num_coverage_curve_of_class[:,4], num_coverage_curve_of_class[:,5], num_coverage_curve_of_class[:,6], num_coverage_curve_of_class[:,7],
-                         num_coverage_curve_of_class[:,8], num_coverage_curve_of_class[:,9], num_coverage_curve_of_class[:,10], num_coverage_curve_of_class[:,11], 
-                         num_coverage_curve_of_class[:,12], num_coverage_curve_of_class[:,13], alpha=0.65)
+    ax[1][0].set_xlabel("coverage")
+    ax[1][0].set_ylabel("risk of clusters")
+    # 聚类的样本数量分布
+    ax[1][1].stackplot(x_axis, cluster_num_coverage_curve_of_class[:,cluster_id_rank[0]], cluster_num_coverage_curve_of_class[:,cluster_id_rank[1]], cluster_num_coverage_curve_of_class[:,cluster_id_rank[2]], cluster_num_coverage_curve_of_class[:,cluster_id_rank[3]],
+                         cluster_num_coverage_curve_of_class[:,cluster_id_rank[4]], cluster_num_coverage_curve_of_class[:,cluster_id_rank[5]], cluster_num_coverage_curve_of_class[:,cluster_id_rank[6]], cluster_num_coverage_curve_of_class[:,cluster_id_rank[7]],
+                         cluster_num_coverage_curve_of_class[:,cluster_id_rank[8]], cluster_num_coverage_curve_of_class[:,cluster_id_rank[9]], cluster_num_coverage_curve_of_class[:,cluster_id_rank[10]], cluster_num_coverage_curve_of_class[:,cluster_id_rank[11]], 
+                         cluster_num_coverage_curve_of_class[:,cluster_id_rank[12]], cluster_num_coverage_curve_of_class[:,cluster_id_rank[13]], alpha=0.6)
     # ax[1].legend()
-    ax[0][2].set_xlabel("Coverage")
-    ax[0][2].set_ylabel("Sample number & coverage curve")
+    ax[1][1].set_xlabel("coverage")
+    ax[1][1].set_ylabel("sample number of clusters")
     # 绘制各聚类类别Risk分布曲线
     weighted_risk = np.zeros((args.kmeans,2))
     for i in range(args.kmeans):
-        cluster_risk_percent_curve_of_class = cluster_risk_coverage_curve_of_class[:,i] / num_coverage_curve_of_class[:,i] * len(risk_coverage)
+        cluster_risk_percent_curve_of_class = cluster_risk_coverage_curve_of_class[:,i] / cluster_num_coverage_curve_of_class[:,i] * len(risk_coverage)
         s_mask = (cluster_risk_percent_curve_of_class != 0) # risk为0的点不画
-        ax[1][1].plot(x_axis[s_mask], cluster_risk_percent_curve_of_class[s_mask], label=i, alpha=0.65)
+        # ax[2][1].plot(x_axis[s_mask], cluster_risk_percent_curve_of_class[s_mask], label=i, alpha=0.65)
         # 计算risk曲线的均值点
         mean_point = 0
         sum_risk = np.sum(cluster_risk_percent_curve_of_class)
         for j in range(cluster_risk_percent_curve_of_class.shape[0]):
            mean_point += j * (cluster_risk_percent_curve_of_class[j] / sum_risk)
         weighted_risk[i, :] = mean_point, cluster_risk_percent_curve_of_class[int(mean_point)]
-        ax[1][1].scatter((mean_point/100), weighted_risk[i][1], marker='*', s=40)
-    ax[1][1].legend(ncol=4)
-    ax[1][1].set_xlabel("Coverage")
-    ax[1][1].set_ylabel("Clustered risk coverage curve")
+    #     ax[2][1].scatter((mean_point/100), weighted_risk[i][1], marker='*', s=40)
+    # ax[2][1].legend(ncol=4)
+    # ax[2][1].set_xlabel("Coverage")
+    # ax[2][1].set_ylabel("Clustered risk coverage curve")
     # 绘制降维后的锚点(分别用锚点类别真值和聚类类别可视化)
     for i in range(int(type_of_anchor_feature_list.max()+1)):
-        ax[1][0].scatter(x_low_dim[type_of_anchor_feature_list == i, 0], x_low_dim[type_of_anchor_feature_list == i, 1], color=hex_c[i], marker=anchor_marker[i], alpha=0.2)
+        ax[0][2].scatter(x_low_dim[type_of_anchor_feature_list == i, 0], x_low_dim[type_of_anchor_feature_list == i, 1], color=hex_c[i], marker=anchor_marker[i], alpha=0.2)
     for i in range(args.kmeans):
-        ax[1][2].scatter(x_low_dim[cluster_model.labels_ == i, 0], x_low_dim[cluster_model.labels_ == i, 1], marker=anchor_marker[i], alpha=0.2)
+        ax[1][2].scatter(x_low_dim[cluster_model.labels_ == cluster_id_rank[i], 0], x_low_dim[cluster_model.labels_ == cluster_id_rank[i], 1], marker=anchor_marker[i], alpha=0.2)
     # 把数据保存到csv中
     with open(os.path.join(args.result_path.replace("cluster_results", "risk_coverage"), 'risk_coverage_curve_of_all_K.csv'.format(cluster_method, args.kmeans)), 'a+') as f:
         f.write(u"\n聚类数量,{}\n".format(args.kmeans))
         # 保存各聚类类别的样本占比
         f.write(u"各类样本数量,")
         for i in range(args.kmeans):
-            f.write("{},".format(num_coverage_curve_of_class[-1, i]))
+            f.write("{},".format(cluster_num_coverage_curve_of_class[-1, i]))
         f.write('\n')
         # 保存risk数据
         # for i in range(args.kmeans):
@@ -518,7 +547,7 @@ def evalUncertaintyOfCluster(args, cluster_method, cluster_model, anchor_feature
         for i in range(args.kmeans):
             f.write("{},".format(cluster_risk_coverage_curve_of_class[-1,i]/np.sum(cluster_risk_coverage_curve_of_class[-1,:])))
         f.write("\n")
-    fig.savefig(os.path.join(args.result_path.replace("cluster_results", "risk_coverage"), 'risk_coverage_curve__{}_{}.png'.format(cluster_method, args.kmeans)), dpi=600)
+    fig.savefig(os.path.join(args.result_path.replace("cluster_results", "risk_coverage"), 'new_risk_coverage_curve__{}_{}.png'.format(cluster_method, args.kmeans)), dpi=600)
     plt.cla()
     plt.close("all")
     
@@ -664,8 +693,9 @@ if __name__ == "__main__":
         print()
         
         # 3. 计算聚类结果整体的不确定性（entropy）
-        if args.subset == "train_fine_anno":
-            evalUncertaintyOfCluster(args, cluster_method, cluster_model, anchor_feature_list, type_of_anchor_feature_list, x_low_dim)
+        if args.subset != "train_fine_anno":
+            anchor_label = fine_anchor_label
+        evalUncertaintyOfCluster(args, cluster_method, cluster_model, anchor_feature_list, type_of_anchor_feature_list, x_low_dim)
 
         # 4. 可视化聚类后的锚点，并将它们绘制在图像上
         # predict_patch(args, data_loader, cluster_method, cluster_model, cluster_precision)
